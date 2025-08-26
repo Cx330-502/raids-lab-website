@@ -44,7 +44,7 @@ jobs:
         with:
           # autocorrect-action 会将这里的 args 附加到内部执行的命令后面
           # $(...) 是 shell 的命令替换，它会执行 git diff 并将其输出（文件名列表）放到这里
-          args: $(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }})
+          args: --lint $(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }})
 
       # 3. 如果检查失败，则使用 Reviewdog 报告错误
       # 这和你的初始工作流逻辑一样，但是我们同样需要把 args 传进去
