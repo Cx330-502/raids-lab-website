@@ -1,0 +1,3 @@
+# Only check and fix files in these paths
+files:
+  - ".github/**/*.yml"
