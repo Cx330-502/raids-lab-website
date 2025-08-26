@@ -15,7 +15,7 @@
 name: AutoCorrect Website Files
 
 on:
-  pull_request_target:
+  pull_request:
     paths:
       - '.github/**'
       - 'crater-website/src/**'        
