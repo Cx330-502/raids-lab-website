@@ -37,14 +37,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 运行 AutoCorrect 检查
-      # 将 git diff 的输出作为参数传递给 autocorrect
+      # 2. 获取变更的文件列表
+      - name: Get changed files
+        id: changed-files
+        run: |
+          echo "files=$(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }} | xargs)" >> $GITHUB_OUTPUT
+
+      # 3. 运行 AutoCorrect 检查
+      # 将上一步获取的文件列表作为参数传递
       - name: AutoCorrect
         uses: huacnlee/autocorrect-action@v2
         with:
-          # autocorrect-action 会将这里的 args 附加到内部执行的命令后面
-          # $(...) 是 shell 的命令替换，它会执行 git diff 并将其输出（文件名列表）放到这里
-          args: --lint $(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }})
+          args: --lint ${{ steps.changed-files.outputs.files }}
 
       # 3. 如果检查失败，则使用 Reviewdog 报告错误
       # 这和你的初始工作流逻辑一样，但是我们同样需要把 args 传进去
