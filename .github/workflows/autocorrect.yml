@@ -42,5 +42,5 @@ jobs:
           # 开启 reviewdog 模式
           reviewdog: true
           # [可选] 明确传递 lint 参数，虽然 reviewdog 模式下默认就是 lint
-          # args: "--lint"
+          # args: "--lint"   
 
