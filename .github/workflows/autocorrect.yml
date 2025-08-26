@@ -48,22 +48,29 @@ jobs:
       # 只有当 'changed-files' 步骤的输出不为空时才执行
       - name: Generate .autocorrectignore for this PR
         if: steps.changed-files.outputs.all_changed_files != ''
+        # 新增：将多行输出安全地存入环境变量
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           echo "Generating .autocorrectignore to scope changes for this PR..."
           
           # 规则一：默认忽略所有文件
           echo '*' > .autocorrectignore
           
-          # 规则二：读取变更文件列表，逐行添加例外规则
-          # 使用 while read 循环来安全地处理所有文件名
-          echo "${{ steps.changed-files.outputs.all_changed_files }}" | while IFS= read -r file; do
-            echo "!/$file" >> .autocorrectignore
+          # 规则二：从环境变量中读取变更文件列表，并逐行添加例外规则
+          # 这里的 "$CHANGED_FILES" 使用双引号是保留换行符的关键！
+          # 使用 printf 可以比 echo 更安全地处理字符串
+          printf "%s" "$CHANGED_FILES" | while IFS= read -r file; do
+            # 增加一个判断，防止空行导致生成无效规则 "!/"
+            if [ -n "$file" ]; then
+              echo "!/$file" >> .autocorrectignore
+            fi
           done
           
           echo "--- Generated .autocorrectignore content ---"
           cat .autocorrectignore
-          echo "--------------------------------------------"
-
+          echo "--------------------------------------------"```
+          
       # 4. 运行 AutoCorrect
       # Action 会自动读取我们刚刚生成的 .autocorrectignore 文件
       - name: AutoCorrect
