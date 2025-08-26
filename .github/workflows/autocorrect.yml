@@ -74,7 +74,7 @@ jobs:
       # 4. 运行 AutoCorrect
       # Action 会自动读取我们刚刚生成的 .autocorrectignore 文件
       - name: AutoCorrect
-        if: steps.changed-files.outputs.all_changed_files != ''
+        # if: steps.changed-files.outputs.all_changed_files != ''
         uses: huacnlee/autocorrect-action@v2
 
       # 5. 运行 ReviewDog 报告
