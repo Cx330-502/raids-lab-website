@@ -31,50 +31,25 @@ jobs:
       pull-requests: write
 
     steps:
+      # 1. 检出代码
+      # fetch-depth: 0 确保 git diff 可以找到 base.sha
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 获取新增和修改的文件列表
-      # - name: Get changed files
-      #   id: changed-files
-      #   uses: tj-actions/changed-files@v44
-      #   with:
-      #     # 这是解决问题的关键：强制输出使用换行符作为分隔符
-      #     separator: '\n'
-
-      # # 3. 动态生成 .autocorrectignore 文件 (安全版)
-      # # 3. 动态生成 .autocorrectignore 文件 (最终版)
-      # - name: Generate .autocorrectignore for this PR
-      #   if: steps.changed-files.outputs.added_files != '' || steps.changed-files.outputs.modified_files != ''
-      #   run: |
-      #     echo "Generating .autocorrectignore from added and modified files..."
-          
-      #     # 步骤A: 使用 printf "%b" 来正确处理 \n 转义字符，并写入临时文件
-      #     {
-      #       printf "%b\n" "${{ steps.changed-files.outputs.added_files }}"
-      #       printf "%b\n" "${{ steps.changed-files.outputs.modified_files }}"
-      #     } > files_to_check.txt
-          
-      #     # 步骤B: 基于临时文件生成 .autocorrectignore
-      #     echo '*' > .autocorrectignore
-          
-      #     # 从现在格式正确的文件中逐行读取
-      #     while IFS= read -r file; do
-      #       # 确保不处理空行
-      #       if [ -n "$file" ]; then
-      #         echo "!$file" >> .autocorrectignore
-      #       fi
-      #     done < files_to_check.txt
-          
-      #     echo "--- Generated .autocorrectignore content ---"
-      #     cat .autocorrectignore
-      #     echo "--------------------------------------------"
-
-      # 4. 运行 AutoCorrect
-      # Action 会自动读取我们刚刚生成的 .autocorrectignore 文件
+      # 2. 运行 AutoCorrect 检查
+      # 将 git diff 的输出作为参数传递给 autocorrect
       - name: AutoCorrect
-        # if: steps.changed-files.outputs.all_changed_files != ''
+        uses: huacnlee/autocorrect-action@v2
+        with:
+          # autocorrect-action 会将这里的 args 附加到内部执行的命令后面
+          # $(...) 是 shell 的命令替换，它会执行 git diff 并将其输出（文件名列表）放到这里
+          args: $(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }})
+
+      # 3. 如果检查失败，则使用 Reviewdog 报告错误
+      # 这和你的初始工作流逻辑一样，但是我们同样需要把 args 传进去
+      - name: Report with Reviewdog
+        if: failure()
         uses: huacnlee/autocorrect-action@v2
 
       # 5. 运行 ReviewDog 报告
