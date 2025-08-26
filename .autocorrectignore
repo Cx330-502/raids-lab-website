@@ -1,2 +1,5 @@
 *
+!.github/
+
+# 也不要忽略 .github 目录下的所有文件
 !.github/*
