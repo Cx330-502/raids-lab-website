@@ -41,7 +41,7 @@ jobs:
       - name: Get changed files
         id: changed-files
         run: |
-          echo "files=$(git diff --name-only --diff-filter=AM ${{ github.event.pull_request.base.sha }} | xargs)" >> $GITHUB_OUTPUT
+          echo "files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} | xargs -0)" >> $GITHUB_OUTPUT
 
       # 3. 运行 AutoCorrect 检查
       # 将上一步获取的文件列表作为参数传递
