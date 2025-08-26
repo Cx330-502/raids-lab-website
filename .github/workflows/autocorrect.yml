@@ -32,16 +32,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Check for AutoCorrect issues
-        uses: huacnlee/autocorrect-action@v2
-        with:
-          # 使用 --lint 参数来让 autocorrect 在发现问题时返回失败的退出码
-          args: "--lint"
-      - name: Report ReviewDog
-        # 当上一步因为发现问题而失败时，此步骤才会执行
-        if: failure()
+      - name: Lint with AutoCorrect and Report by ReviewDog
+        # 使用同一个 action，同时开启 reviewdog 模式
         uses: huacnlee/autocorrect-action@v2
         env:
+          # 确保 GITHUB_TOKEN 有权限
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # 开启 reviewdog 模式
+          reviewdog: true
+          # [可选] 明确传递 lint 参数，虽然 reviewdog 模式下默认就是 lint
+          # args: "--lint"
           reviewdog: true
