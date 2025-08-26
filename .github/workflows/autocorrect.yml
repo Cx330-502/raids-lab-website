@@ -32,10 +32,48 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 获取变更的文件列表
+      # 我们指定用换行符 '\n' 作为分隔符，这样即使文件名包含空格也能正确处理
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          separator: "\n"
+
+      # 3. 动态生成 .autocorrectignore 文件
+      # 这是解决问题的核心步骤。
+      # 只有当 'changed-files' 步骤的输出不为空时才执行
+      - name: Generate .autocorrectignore for this PR
+        if: steps.changed-files.outputs.all_changed_files != ''
+        run: |
+          echo "Generating .autocorrectignore to scope changes for this PR..."
+          
+          # 规则一：默认忽略所有文件
+          echo '*' > .autocorrectignore
+          
+          # 规则二：读取变更文件列表，逐行添加例外规则
+          # 使用 while read 循环来安全地处理所有文件名
+          echo "${{ steps.changed-files.outputs.all_changed_files }}" | while IFS= read -r file; do
+            echo "!/$file" >> .autocorrectignore
+          done
+          
+          echo "--- Generated .autocorrectignore content ---"
+          cat .autocorrectignore
+          echo "--------------------------------------------"
+
+      # 4. 运行 AutoCorrect
+      # Action 会自动读取我们刚刚生成的 .autocorrectignore 文件
       - name: AutoCorrect
+        if: steps.changed-files.outputs.all_changed_files != ''
         uses: huacnlee/autocorrect-action@v2
+
+      # 5. 运行 ReviewDog 报告
+      # 同样，它也会遵循 .autocorrectignore 的规则
       - name: Report ReviewDog
-        if: failure()
+        if: failure() && steps.changed-files.outputs.all_changed_files != ''
         uses: huacnlee/autocorrect-action@v2
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
