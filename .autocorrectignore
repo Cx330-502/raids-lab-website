@@ -1,5 +1,0 @@
-*
-!.github
-!.github/workflows
-!.github/workflows/dashboard
-!.github/workflows/dashboard/crater-user-nvidia-dashboard.json
