@@ -50,16 +50,10 @@ jobs:
         with:
           args: --lint ${{ steps.changed-files.outputs.files }}
 
-      # 3. 如果检查失败，则使用 Reviewdog 报告错误
-      # 这和你的初始工作流逻辑一样，但是我们同样需要把 args 传进去
-      - name: Report with Reviewdog
-        if: failure()
-        uses: huacnlee/autocorrect-action@v2
-
       # 5. 运行 ReviewDog 报告
       # 同样，它也会遵循 .autocorrectignore 的规则
       - name: Report ReviewDog
-        if: failure() && steps.changed-files.outputs.all_changed_files != ''
+        if: failure()
         uses: huacnlee/autocorrect-action@v2
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
