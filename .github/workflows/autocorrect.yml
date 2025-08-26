@@ -63,7 +63,7 @@ jobs:
           while IFS= read -r file; do
             # 确保不处理空行
             if [ -n "$file" ]; then
-              echo "!/$file" >> .autocorrectignore
+              echo "!$file" >> .autocorrectignore
             fi
           done < files_to_check.txt
           
