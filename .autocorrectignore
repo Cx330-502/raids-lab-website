@@ -1,0 +1,12 @@
+*
+!.github/workflows/dashboards/better-dcgm.json
+!.github/workflows/dashboards/crater-gpu-350260203345272246345217202350200203.json
+!.github/workflows/dashboards/crater-gpu-350265204346272220347233221346216247346246202350247210.json
+!.github/workflows/dashboards/crater-job-basic-dashboard.json
+!.github/workflows/dashboards/crater-job-nvidia-dashboard.json
+!.github/workflows/dashboards/crater-node-basic-dashboard.json
+!.github/workflows/dashboards/crater-node-nvidia-dashboard.json
+!.github/workflows/dashboards/crater-pod-dashboard.json
+!.github/workflows/dashboards/crater-user-nvidia-dashboard.json
+!.github/workflows/dashboards/networking.json
+!.github/workflows/autocorrect.yml
