@@ -35,42 +35,40 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. 获取变更的文件列表
-      # 我们指定用换行符 '\n' 作为分隔符，这样即使文件名包含空格也能正确处理
+            # 2. 获取新增和修改的文件列表
+      # 我们不再使用 all_changed_files，而是用更精确的 added_files 和 modified_files
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v44
-        with:
-          separator: "\n"
 
-      # 3. 动态生成 .autocorrectignore 文件
-      # 这是解决问题的核心步骤。
-      # 只有当 'changed-files' 步骤的输出不为空时才执行
+      # 3. 动态生成 .autocorrectignore 文件 (安全版)
       - name: Generate .autocorrectignore for this PR
-        if: steps.changed-files.outputs.all_changed_files != ''
-        # 新增：将多行输出安全地存入环境变量
-        env:
-          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+        # 仅当存在新增或修改的文件时才运行
+        if: steps.changed-files.outputs.added_files != '' || steps.changed-files.outputs.modified_files != ''
         run: |
-          echo "Generating .autocorrectignore to scope changes for this PR..."
+          echo "Generating .autocorrectignore from added and modified files..."
           
-          # 规则一：默认忽略所有文件
+          # 步骤A: 将新增和修改的文件名写入一个临时文件，这是最安全的方式
+          {
+            echo "${{ steps.changed-files.outputs.added_files }}"
+            echo "${{ steps.changed-files.outputs.modified_files }}"
+          } > files_to_check.txt
+          
+          # 步骤B: 基于这个临时文件生成 .autocorrectignore
           echo '*' > .autocorrectignore
           
-          # 规则二：从环境变量中读取变更文件列表，并逐行添加例外规则
-          # 这里的 "$CHANGED_FILES" 使用双引号是保留换行符的关键！
-          # 使用 printf 可以比 echo 更安全地处理字符串
-          printf "%s" "$CHANGED_FILES" | while IFS= read -r file; do
-            # 增加一个判断，防止空行导致生成无效规则 "!/"
+          # 从文件中逐行读取，避免所有 shell 解析问题
+          while IFS= read -r file; do
+            # 确保不处理空行
             if [ -n "$file" ]; then
               echo "!/$file" >> .autocorrectignore
             fi
-          done
+          done < files_to_check.txt # 注意这里的 < files_to_check.txt
           
           echo "--- Generated .autocorrectignore content ---"
           cat .autocorrectignore
-          echo "--------------------------------------------"```
-          
+          echo "--------------------------------------------"
+
       # 4. 运行 AutoCorrect
       # Action 会自动读取我们刚刚生成的 .autocorrectignore 文件
       - name: AutoCorrect
