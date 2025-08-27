@@ -1,0 +1,106 @@
+# .github/workflows/demo-processor.yml
+
+# 工作流的名称
+name: 'Demo Document Processor'
+
+# 触发工作流的事件
+on:
+  # 当有代码推送到 main 分支时
+  push:
+    branches:
+      - main
+    # 并且只有当 'source_docs/' 目录下的文件发生变化时才触发
+    paths:
+      - 'source_docs/**'
+
+# 定义工作流中的任务
+jobs:
+  # 我们只有一个任务，ID是 process-files
+  process-files:
+    # 任务的名称，会显示在 GitHub Actions 的界面上
+    name: Process Changed Documents
+
+    # 关键：指定此任务必须运行在同时拥有 'self-hosted' 和 'internal-translator' 标签的 Runner 上
+    # 请确保你的 Runner 至少有这两个标签
+    runs-on: [self-hosted, internal-translator]
+
+    # 任务由一系列步骤组成
+    steps:
+      # 第1步：检出代码
+      # 'uses' 关键字表示我们要使用一个预先构建好的 Action
+      - name: '1. Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          # 获取完整的 git 历史，这样我们才能比较最近的两次提交找出差异
+          fetch-depth: 0
+
+      # 第2步：找出被修改的文件
+      # 'run' 关键字表示我们要直接运行一个 shell 命令
+      - name: '2. Find Changed Files'
+        id: find_files # 给这个步骤一个ID，方便后面引用它的输出
+        run: |
+          # 使用 git diff 找出上一个提交和当前提交之间在 source_docs 目录下的所有变更文件
+          # 并将文件名列表保存到一个叫做 'files.txt' 的临时文件中
+          echo "Finding changed files in source_docs/..."
+          git diff --name-only HEAD~1 HEAD | grep "source_docs/" > files.txt
+          
+          # 打印出找到了哪些文件，方便调试
+          echo "--- Changed Files ---"
+          cat files.txt
+          echo "---------------------"
+
+      # 第3步：模拟处理文件（这是核心的“干活”部分）
+      - name: '3. Process Files'
+        run: |
+          # 如果 files.txt 为空（比如提交只修改了其他目录的文件），则直接退出
+          if [ ! -s files.txt ]; then
+            echo "No files in source_docs/ to process. Exiting."
+            exit 0
+          fi
+          
+          # 创建用于存放处理结果的目录
+          mkdir -p processed_docs
+          
+          # 循环读取 'files.txt' 中的每一个文件名
+          while IFS= read -r file_path; do
+            # 获取原始文件名，例如 "source_docs/intro.md" -> "intro.md"
+            filename=$(basename "$file_path")
+            
+            # 定义处理后文件的输出路径
+            output_path="processed_docs/$filename"
+            
+            echo "Processing '$file_path' -> '$output_path'"
+            
+            # 核心处理逻辑：
+            # 1. 打印一行处理信息
+            # 2. 打印原始文件内容
+            # 3. 将以上两部分内容合并，并重定向保存到新的输出文件中
+            {
+              echo "--- Processed by GitHub Actions Demo on $(date) ---";
+              echo "";
+              cat "$file_path";
+            } > "$output_path"
+          done < files.txt
+
+      # 第4步：创建 Pull Request
+      # 使用一个非常流行的 Action 来自动完成提交和创建 PR 的操作
+      - name: '4. Create Pull Request with Processed Files'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          # Action 需要的 GitHub Token，用于授权它代表你操作仓库
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Git 提交信息
+          commit-message: 'docs(auto): Update processed documents'
+          
+          # 新分支的名称
+          branch: 'auto/processed-docs'
+          
+          # PR 的标题
+          title: '[AUTO] Update Processed Documents'
+          
+          # PR 的正文内容
+          body: |
+            This is an auto-generated PR.
+            It contains updates to documents based on changes in the `source_docs/` directory.
+            Please review and merge.
