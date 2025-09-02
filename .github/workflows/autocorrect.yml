@@ -53,7 +53,7 @@ jobs:
 
       # --- Forked PR 的处理逻辑 (已简化) ---
       - name: Get changed files in website dirs (for forked PRs)
-        # if: github.event.pull_request.head.repo.full_name != github.repository
+        #if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
         run: |
           files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} -- 'crater-website/src/**' 'crater-website/content/**' 'crater-website/messages/**' | xargs -0)
@@ -69,17 +69,19 @@ jobs:
         id: lint
         uses: huacnlee/autocorrect-action@v2
         with:
-          # 核心技巧：将完整的 lint 和重定向命令作为参数传入
-          # 注意这里的 > autocorrect_report.rdjson
           args: --lint --format rdjson ${{ steps.changed-files.outputs.files }} > autocorrect_report.rdjson
         continue-on-error: true
 
-      - name: Post Comments with Reviewdog (for forked PRs)
+      # 核心修正点：将错误的 Action 替换为正确的 "Setup + Run" 模式
+      - name: Install reviewdog
         if: steps.changed-files.outputs.files_exist == 'true' && steps.lint.outcome == 'failure'
-        uses: reviewdog/action-reviewdog@v1
+        uses: reviewdog/action-setup@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-pr-review
-          level: warning
-          # reviewdog 读取上一步生成的报告文件，该文件已存在于工作区中
-          reviewdog_flags: -f=rdjson < autocorrect_report.rdjson
+          reviewdog_version: latest
+
+      - name: Post Comments with Reviewdog
+        if: steps.changed-files.outputs.files_exist == 'true' && steps.lint.outcome == 'failure'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog -f=rdjson -reporter=github-pr-review -level=warning < autocorrect_report.rdjson
