@@ -51,7 +51,6 @@ jobs:
       #     commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
       #     commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
 
-      # --- Forked PR 的处理逻辑 (已简化) ---
       - name: Get changed files in website dirs (for forked PRs)
         #if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
@@ -64,24 +63,13 @@ jobs:
             echo "files_exist=false" >> $GITHUB_OUTPUT
           fi
           
-      - name: Lint Changed Files and Generate Report (for forked PRs)
+      - name: Lint changed files and Report with Reviewdog (for forked PRs)
         if: steps.changed-files.outputs.files_exist == 'true'
-        id: lint
         uses: huacnlee/autocorrect-action@v2
-        with:
-          args: --lint --format rdjson ${{ steps.changed-files.outputs.files }} > autocorrect_report.rdjson
-        continue-on-error: true
-
-      # 核心修正点：将错误的 Action 替换为正确的 "Setup + Run" 模式
-      - name: Install reviewdog
-        if: steps.changed-files.outputs.files_exist == 'true' && steps.lint.outcome == 'failure'
-        uses: reviewdog/action-setup@v1
-        with:
-          reviewdog_version: latest
-
-      - name: Post Comments with Reviewdog
-        if: steps.changed-files.outputs.files_exist == 'true' && steps.lint.outcome == 'failure'
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          reviewdog -f=rdjson -reporter=github-pr-review -level=warning < autocorrect_report.rdjson
+        with:
+          # 核心技巧：覆盖默认的入口点，直接使用 shell
+          entrypoint: /bin/sh
+          # 核心技巧：将完整的、包含管道的命令作为参数传递给 shell
+          args: -c "autocorrect --lint --format rdjson ${{ steps.changed-files.outputs.files }} | reviewdog -f=rdjson -reporter=github-pr-review -level=warning"
