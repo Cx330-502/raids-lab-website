@@ -17,7 +17,6 @@ name: AutoCorrect Website Files
 on:
   pull_request_target:
     paths:
-      - '.github/**'
       - 'crater-website/src/**'
       - 'crater-website/content/**'
 
@@ -37,41 +36,50 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: AutoCorrect and Fix (for internal PRs)
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: huacnlee/autocorrect-action@v2
-        with:
-          args: --fix
+      # - name: AutoCorrect and Fix (for internal PRs)
+      #   if: github.event.pull_request.head.repo.full_name == github.repository
+      #   uses: huacnlee/autocorrect-action@v2
+      #   with:
+      #     args: --fix crater-website/src/** crater-website/messages/** crater-website/content/**
 
-      - name: Commit changes (for internal PRs)
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "style(website): Auto-correct files by autocorrect-action"
-          commit_user_name: github-actions[bot]
-          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
-          commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
+      # - name: Commit changes (for internal PRs)
+      #   if: github.event.pull_request.head.repo.full_name == github.repository
+      #   uses: stefanzweifel/git-auto-commit-action@v5
+      #   with:
+      #     commit_message: "style(website): Auto-correct files by autocorrect-action"
+      #     commit_user_name: github-actions[bot]
+      #     commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+      #     commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
 
-      - name: Get changed files (for forked PRs)
-        if: github.event.pull_request.head.repo.full_name != github.repository
+      # --- Forked PR 的处理逻辑 (已简化) ---
+      - name: Get changed files in website dirs (for forked PRs)
+        # if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
         run: |
-          echo "files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} | xargs -0)" >> $GITHUB_OUTPUT
-
-      - name: Lint Changed Files (for forked PRs)
-        if: github.event.pull_request.head.repo.full_name != github.repository && steps.changed-files.outputs.files != ''
+          files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} -- 'crater-website/src/**' 'crater-website/content/**' 'crater-website/messages/**' | xargs -0)
+          if [ -n "$files" ]; then
+            echo "files_exist=true" >> $GITHUB_OUTPUT
+            echo "files=$files" >> $GITHUB_OUTPUT
+          else
+            echo "files_exist=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Lint Changed Files and Generate Report (for forked PRs)
+        if: steps.changed-files.outputs.files_exist == 'true'
         id: lint
         uses: huacnlee/autocorrect-action@v2
         with:
-          args: --lint ${{ steps.changed-files.outputs.files }}
+          # 核心技巧：将完整的 lint 和重定向命令作为参数传入
+          # 注意这里的 > autocorrect_report.rdjson
+          args: --lint --format rdjson ${{ steps.changed-files.outputs.files }} > autocorrect_report.rdjson
         continue-on-error: true
 
-      - name: Report with Reviewdog (for forked PRs)
-        if: |
-          github.event.pull_request.head.repo.full_name != github.repository &&
-          steps.lint.outcome == 'failure'
-        uses: huacnlee/autocorrect-action@v2
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Post Comments with Reviewdog (for forked PRs)
+        if: steps.changed-files.outputs.files_exist == 'true' && steps.lint.outcome == 'failure'
+        uses: reviewdog/action-reviewdog@v1
         with:
-          reviewdog: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: warning
+          # reviewdog 读取上一步生成的报告文件，该文件已存在于工作区中
+          reviewdog_flags: -f=rdjson < autocorrect_report.rdjson
