@@ -52,7 +52,7 @@ jobs:
       #     commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
 
       - name: Get changed files in website dirs (for forked PRs)
-        if: github.event.pull_request.head.repo.full_name != github.repository
+        #if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
         run: |
           files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} -- 'crater-website/src/**' 'crater-website/content/**' 'crater-website/messages/**' | xargs -0)
