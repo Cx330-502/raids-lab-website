@@ -36,24 +36,24 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      # - name: AutoCorrect and Fix (for internal PRs)
-      #   if: github.event.pull_request.head.repo.full_name == github.repository
-      #   uses: huacnlee/autocorrect-action@v2
-      #   with:
-      #     args: --fix crater-website/src/** crater-website/messages/** crater-website/content/**
+      - name: AutoCorrect and Fix (for internal PRs)
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: huacnlee/autocorrect-action@v2
+        with:
+          args: --fix crater-website/src/** crater-website/messages/** crater-website/content/**
 
-      # - name: Commit changes (for internal PRs)
-      #   if: github.event.pull_request.head.repo.full_name == github.repository
-      #   uses: stefanzweifel/git-auto-commit-action@v5
-      #   with:
-      #     commit_message: "style(website): Auto-correct files by autocorrect-action"
-      #     commit_user_name: github-actions[bot]
-      #     commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
-      #     commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
+      - name: Commit changes (for internal PRs)
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style(website): Auto-correct files by autocorrect-action"
+          commit_user_name: github-actions[bot]
+          commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
 
       # --- Forked PR 的处理逻辑 (最终可靠版) ---
       - name: Get changed files in website dirs (for forked PRs)
-        #if: github.event.pull_request.head.repo.full_name != github.repository
+        if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
         run: |
           files=$(git diff --name-only -z --diff-filter=AM ${{ github.event.pull_request.base.sha }} -- 'crater-website/src/**' 'crater-website/content/**' 'crater-website/messages/**' | xargs -0)
