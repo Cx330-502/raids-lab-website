@@ -1,0 +1,345 @@
+---
+title: すぐに始める
+description: Crater をデプロイして使用する。
+---
+
+
+
+Crater プラットフォームに依存する Kubernetes クラスターが稼働するため、デプロイする前に、監視、ストレージ、ネットワーク、スケジュール設定、イメージリポジトリなどのコア機能を提供する一連の基本依存コンポーネントを準備する必要があります。これらのコンポーネントにより、プラットフォームが正常に起動して稼働するようになります。
+
+最小限のデプロイメント ソリューションでは、できるだけ核心となる不可欠な依存関係のみを維持し、過度の複雑さを避けます。最終的に決定された依存関係は次のとおりです。
+
+- **NVIDIA GPU Operator**：設置を担当する。 GPU ドライバー、デバイスプラグイン、監視コンポーネントを確保する。 Crater スケジュール設定が可能です GPU タスク。
+- **Bitnami PostgreSQL**：高い可用性は考慮しないでください。 PostgreSQL データベースサービス。このプランでは、主に次のように使用されます。 Crater 外部データベース。
+- **IngressClass (Ingress-Nginx)**：外部トラフィックのルーティングを処理し、ユーザーのリクエストをクラスター内のサービスに転送する責任を担っています。
+- **Volcano**：バッチ処理に向けて、そして AI ワークロードのスケジュール設定フレームワークは、 Crater 課題のスケジュール管理の中心となるものです。
+- **StorageClass (NFS)**：統一された分散型ストレージバックエンドは、データベースと Harbor 永続的ストレージ機能を提供します。
+
+これらのコンポーネントを選択した理由は、それらが **Crater プラットフォームで動作するための最小要件** 必要な重要なサポート。これらがなければ、プラットフォームは正常に機能しないでしょう。そして例えば、 **Prometheus/Grafana 監視スタック**、**MetalLB 負荷分散**、**OpenEBS 保存** 機能が強くても、必須ではない依存関係は、デプロイのハードルを下げるために最小バージョンから除外されています。
+
+## Installation
+
+### Install from GitHub Container Registry (Recommended)
+
+```bash
+# Add the Helm OCI repository
+helm registry login ghcr.io
+
+# Install the chart
+helm install crater oci://ghcr.io/raids-lab/crater --version 0.1.0
+
+# Or upgrade an existing installation
+helm upgrade crater oci://ghcr.io/raids-lab/crater --version 0.1.0
+```
+
+### Install from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/raids-lab/crater.git
+cd crater/charts
+
+# Install the chart
+helm install crater crater/
+```
+
+## Configuration
+
+The chart can be configured using a values file. Create a `values.yaml` file with your specific configurations:
+
+```yaml
+# Example minimal configuration
+backendConfig:
+  postgres:
+    host: "your-postgres-host"
+    password: "your-password"
+  auth:
+    accessTokenSecret: "your-access-token-secret"
+    refreshTokenSecret: "your-refresh-token-secret"
+```
+
+Then install with your values:
+
+```bash
+helm install crater oci://ghcr.io/raids-lab/crater --values values.yaml
+```
+
+詳細な設定の意味を知りたい場合は、を読んでください。 [設定の説明](./chart.mdx)。
+
+
+## プレディプレイスメントの依存関係をデプロイする。
+
+| Component           | Purpose                          |
+| ------------------- | -------------------------------- |
+| NVIDIA GPU Operator | GPU device plugin and monitoring |
+| Bitnami PostgreSQL  | PostgreSQL database service      |
+| IngressClass        | Ingress traffic routing          |
+| Volcano             | Base job scheduling framework    |
+| StorageClass (NFS)  | Distributed storage backend      |
+
+### IngressClass
+
+製造クラスターでは、負荷バランサー（例えば、）と組み合わせて使用することが一般的です。 MetalLB）そして Ingress コントローラと一緒に使用します。しかし、最小限のデプロイメントシナリオでは、わずかに基本的なものだけが必要です。 **Ingress-Nginx コントローラ** これで、外部のリクエストがクラスター内のサービスにルーティングされます。そうすることで、基層のネットワークプラグインや負荷分散機能への依存を回避することができます。
+
+直接以下のリンクからアクセスできます。 Helm 配備 Ingress-Nginx コントローラ：
+
+```
+# 公式ウェアハウスを追加する
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# 配備 ingress-nginx
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  -n ingress-nginx --create-namespace
+```
+
+### Volcano
+
+Crater タスクの実行とスケジュール設定は互いに依存しています。 Volcano 提供されるバッチ計算スケジュール設定機能。Volcano 対象に関して AI/大規模データのシナリオ最適化。キュー、優先順位などをサポートします。Gang スケジュール設定などの機能。最小限のデプロイ環境であっても、Volcano これもまた不可欠なコアコンポーネントであり、そうでない場合 Crater タスクをスケジュール設定して実行できません。
+
+### 配備命令
+
+```
+# 追加する Volcano repo
+helm repo add volcano-sh https://volcano-sh.github.io/helm-charts
+helm repo update
+
+# 配備
+helm upgrade --install volcano volcano-sh/volcano \
+  --namespace volcano-system \
+  --create-namespace \
+  --version 1.10.0 \
+  -f volcano/values.yaml
+```
+
+value.yaml 設定の参考  https://github.com/raids-lab/crater-backend/blob/main/deployments/volcano/values.yaml
+
+####  デプロイメントの検証
+
+```
+kubectl get pods -n volcano-system
+```
+
+予想されること Running のコンポーネント：
+
+- `volcano-scheduler`
+
+- `volcano-controllers`
+
+- `volcano-admission`
+
+- `volcano-webhook`
+
+
+### StorageClass (NFS)
+
+NFS 分散型ストレージバックエンドを提供する。Harbor そして CNPG の PVC みんなそれに依存しているのです。
+
+1. で NFS サーバー上にディレクトリを作成し、アクセス権を設定する。
+
+   ```
+   mkdir -p /srv/nfs/k8s
+   chown -R 26:26 /srv/nfs/k8s
+   ```
+
+2. 編集 `/etc/exports`，エクスポート規則を追加する。
+
+   ```
+   /srv/nfs/k8s 192.168.103.0/24(rw,sync,no_subtree_check,no_root_squash)
+   ```
+
+3. エクスポートを更新する：
+
+   ```
+   exportfs -rv
+   ```
+
+4. で K8s クラスターデプロイメント **nfs-subdir-external-provisioner**：
+
+   ```
+   helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+   helm repo update
+   helm install nfs-client nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+     --namespace nfs-provisioner --create-namespace \
+     --set nfs.server=192.168.103.136 \
+     --set nfs.path=/srv/nfs/k8s
+   ```
+
+5. 検証 StorageClass：
+
+   ```
+   kubectl get sc
+   ```
+
+   確認してみたら、あるよ `nfs-client`，そして `provisioner` はい `nfs-subdir-external-provisioner`.
+
+------
+
+### CloudNativePG (CNPG)
+
+Kubernetes データベースやイメージリポジトリなどの状態ベースのコンポーネントは、永続的なストレージサポートが必要です。最小デプロイメントバージョンでは、次のものを選択しました。 **NFS 統一された分散型ストレージバックエンドとして。**，なぜなら、設定が簡単で、互換性が高く、複雑なストレージシステムを追加設置する必要がないからです。 OpenEBS、Ceph）。
+ を通じて NFS 提供されたもの StorageClass，Harbor そして CNPG 直接申請できます PVC，底层のストレージの詳細を気にすることなく、持続的なストレージを実現できます。このソリューションは、軽量でリソースが限られた環境に特に適しています。
+
+CNPG として Harbor 外部データベース管理コンポーネント。
+
+1. 配備 Operator：
+
+   ```
+   helm repo add cnpg https://cloudnative-pg.github.io/charts
+   helm repo update
+   helm install cnpg cnpg/cloudnative-pg --namespace cnpg-system --create-namespace
+   ```
+
+2. データベースユーザーのパスワードを作成する。 Secret：
+
+   ```
+   kubectl -n cnpg-system create secret generic harbor-db-password \
+     --from-literal=password='HarborDbPass!'
+   ```
+
+3. データベースクラスターの定義 (`harbor-pg.yaml`)：
+
+   ```
+   apiVersion: postgresql.cnpg.io/v1
+   kind: Cluster
+   metadata:
+     name: harbor-pg
+   spec:
+     instances: 1
+     imageName: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/cloudnative-pg/postgresql:15
+     storage:
+       size: 5Gi
+       storageClass: nfs-client
+     bootstrap:
+       initdb:
+         database: registry
+         owner: harbor
+         secret:
+           name: harbor-db-password
+           key: password
+   ```
+
+   ```
+   kubectl apply -f harbor-pg.yaml -n cnpg-system
+   ```
+
+4. 検証 CNPG：
+
+   ```
+   kubectl -n cnpg-system get pods
+   kubectl -n cnpg-system get svc | grep harbor-pg
+   ```
+
+   あなたはこれを見るはずです：
+
+   - `harbor-pg-1` Pod Running
+   - `harbor-pg-rw` Service 提供する 5432 ポート
+
+5. データベーステストにログインする：
+
+   ```
+   kubectl -n cnpg-system exec -it harbor-pg-1 -c postgres -- \
+     psql -h 127.0.0.1 -U harbor -d registry -W
+   ```
+
+------
+
+### 配備 Harbor
+
+Harbor はい Crater プラットフォームに依存したイメージ リポジトリ。イントラネットやオフライン環境では、公開イメージ リポジトリ（例えば、 DockerHub、ghcr.io）多くの場合、アクセスしにくいため、専用の倉庫で保管する必要があります。 Crater フロントエンド、バックエンド、および依存関係のイメージ。
+ 選択 Harbor その理由は、それが備えているからです。 **ミラーリング管理、権限制御、セキュリティスキャン** エンタープライズレベルの機能を備えながら、同時に Kubernetes ネイティブ統合が良好です。最小限のデプロイ環境では、Harbor ただ依存する必要がある **NFS 保存** そして **CNPG 外部データベース** 実行するだけで、追加の依存関係はありません Redis/Postgres 内蔵バージョンで、全体的なアーキテクチャが簡素化されています。
+ そうすることで、ただ単に簡体字中国語以外の言語を翻訳するだけでなく、 Crater イメージはローカルに保存および配布でき、後続の拡張（複数ユーザー、複数プロジェクトのイメージ管理など）の基盤としても機能します。
+
+Harbor 以上のものを使用してください。 **NFS** 保存して **CNPG 外部データベース**。
+
+1. ダウンロード Chart：
+
+   ```
+   helm repo add harbor https://helm.goharbor.io
+   helm repo update
+   helm pull harbor/harbor --untar --untardir ./charts
+   cd charts/harbor
+   ```
+
+2. 編集 `values.yaml`，主な変更点：
+
+   - 露出の方法 (NodePort)：
+
+     ```
+     expose:
+       type: nodePort
+       nodePort:
+         ports:
+           http:
+             port: 30002
+     externalURL: http://192.168.103.136:30002
+     ```
+
+   - 外部データベースを使用する:
+
+     ```
+     database:
+       type: external
+       external:
+         host: harbor-pg-rw.cnpg-system.svc
+         port: "5432"
+         username: harbor
+         coreDatabase: registry
+         existingSecret: harbor-db-password
+     ```
+
+   - 指定する PVC：
+
+     ```
+     persistence:
+       enabled: true
+       resourcePolicy: "keep"
+       persistentVolumeClaim:
+         registry:
+           existingClaim: harbor-registry
+           storageClass: nfs-client
+           size: 50Gi
+     ```
+
+   - ミラーソースの置き換え（必要なミラーは下記の表に示されており、Huawei Cloudのミラーで置き換えることができます）：
+
+| コンポーネント                      | 倉庫(repo)                      | tag       | ミラーの置き換え                                                     |
+| ------------------------- | ------------------------------- | --------- | ------------------------------------------------------------ |
+| nginx                     | `goharbor/nginx-photon`         | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/nginx-photon:v2.12.0 |
+| portal                    | `goharbor/harbor-portal`        | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-portal:v2.12.0 |
+| core                      | `goharbor/harbor-core`          | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-core:v2.12.0 |
+| jobservice                | `goharbor/harbor-jobservice`    | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-jobservice:v2.12.0 |
+| registry（distribution）  | `goharbor/registry-photon`      | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/registry-photon:v2.12.0 |
+| registryctl               | `goharbor/harbor-registryctl`   | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-registryctl:v2.12.0 |
+| trivy-adapter             | `goharbor/trivy-adapter-photon` | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/trivy-adapter-photon:v2.12.1 |
+| database（内蔵型 Postgres） | `goharbor/harbor-db`            | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-db:v2.12.0 |
+| redis（内蔵型 Redis）       | `goharbor/redis-photon`         | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/redis-photon:v2.12.0 |
+| exporter                  | `goharbor/harbor-exporter`      | `v2.12.0` | swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/goharbor/harbor-exporter:v2.12.0 |
+
+3. 配備 Harbor：
+
+   ```
+   helm install harbor . -n harbor-system --create-namespace -f values.yaml
+   ```
+
+4. 検証 Pod 状態：
+
+   ```
+   kubectl -n harbor-system get pods
+   ```
+
+   コンポーネントの実行を確認する。
+
+   - `harbor-core` ✅
+   - `harbor-jobservice` ✅
+   - `harbor-portal`, `harbor-nginx`, `harbor-registry`, `harbor-redis`, `harbor-trivy` ✅
+
+5. 訪問 Harbor：
+   ブラウザを開いてアクセスしてください。
+
+   ```
+   http://192.168.103.136:30002
+   ```
+
+   デフォルトユーザー：`admin`
+    デフォルトのパスワード：<にて `values.yaml` 設定された中で `harborAdminPassword`。

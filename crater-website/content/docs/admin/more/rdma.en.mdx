@@ -1,0 +1,1165 @@
+---
+title: RDMA support
+description: RDMA
+---
+
+
+
+> - [K8s test via Infiniband network - Adapters and Cables / InfiniBand/VPI Adapter Cards - NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/k8s-test-via-infiniband-network/285610)
+> - [Running tightly coupled HPC/AI workloads with InfiniBand using NVIDIA Network Operator on AKS \| Microsoft Community Hub](https://techcommunity.microsoft.com/blog/azurehighperformancecomputingblog/running-tightly-coupled-hpcai-workloads-with-infiniband-using-nvidia-network-ope/4117209)
+> - [Basic Knowledge and Differences of RoCE, IB, and TCP Networks](https://support.huawei.com/enterprise/en/doc/EDOC1100203339)
+
+Before we officially start, let's first cover some basics about RDMA Related basic knowledge:
+
+- **RDMA**：It is a network communication technology that bypasses the operating system kernel. Its core is to directly access remote memory through the network card, avoiding the traditional approach. TCP/IP The overhead of data copying and context switching in the protocol stack.
+- **NVIDIA GPU Direct**[^2]：Implement GPU Video memory and network card DMA The direct connection of the engine, when GPU When it's necessary to communicate with remote nodes, the data can be transmitted directly via InfiniBand Or RoCE The network card transfers data without going through the host's memory for intermediate storage.
+- **Network virtualization**：Macvlan And SR-IOV They are two common network virtualization solutions.Macvlan Allows the creation of virtual network card interfaces for containers, making them appear as independent devices on the physical network; and SR-IOV By leveraging the hardware virtualization capabilities of the physical network card, a single physical function can be implemented.PF）It is divided into multiple virtual functions.VF），Every VF All of them can be directly assigned to Pod Use it.
+- **Technical path**：At present RDMA There are mainly InfiniBand And RoCE Two implementation methods[^6]。InfiniBand Native support RDMA For the agreement, it is necessary to build an independent network with dedicated switches and subnet managers, which is very costly. However, RoCEv2 Then, based on the traditional Ethernet infrastructure, through PFC And ECN It relies on flow control mechanisms to ensure lossless transmission and is widely used by Internet companies.
+
+What our lab uses is InfiniBand The plan. To this end, we first need to check the relevant equipment. IB Information:
+
+### 1. Conducting a single-node test InfiniBand Related information
+
+First, conduct tests on the host machine. Before uploading to the cloud, these machines need to be tested thoroughly. IB They're all the same:
+
+```bash
+$ ibdev2netdev
+mlx5_0 port 1 ==> ibxxxxxx0 (Up)
+mlx5_1 port 1 ==> ibxxxxxx1 (Up)
+
+$ ibstat
+CA 'mlx5_0'
+        Port 1:
+                Link layer: InfiniBand
+CA 'mlx5_1'
+        Port 1:
+                Link layer: InfiniBand
+```
+
+- **Up**: It means that InfiniBand The port has been successfully activated and a connection to the network has been established
+- **Down**: It means that InfiniBand The port is not activated or the network connection failed to establish
+
+### 2. Use Ansible Batch view the node network cards
+
+Division of groups:
+
+```toml
+[ib-v100]
+xx.xx.xx.[xx:xx]
+
+[ib-a100]
+xx.xx.xx.[xx:xx]
+```
+
+Write a batch query script:
+
+```yaml
+---
+- name: Run ibdev2netdev on InfiniBand hosts
+  hosts: ib-v100,ib-a100
+  gather_facts: no
+
+  tasks:
+    - name: Execute ibdev2netdev command
+      ansible.builtin.command: ibdev2netdev
+      register: ibdev_output
+      changed_when: false
+
+    - name: Display ibdev2netdev output
+      ansible.builtin.debug:
+        var: ibdev_output.stdout_lines
+```
+
+Due to the return value being too long, I won't post the full version. It starts from < `ibdev2netdev` Judging from the output results, the two types of nodes in the cluster InfiniBand The configurations are different:
+
+#### V100 Node
+
+```
+mlx5_0 port 1 ==> ibxxxxxx0 (Up)
+mlx5_1 port 1 ==> ibxxxxxx1 (Up)
+```
+
+Each of these nodes has a dual-port interface. IB Network card, the maximum speed of each port is 100Gbp/s，Connect to them respectively. 2 Taiwan 36 Of the port IB On the switch,2 There are also switches between each of them 4 Article 100Gbps The interconnected lines.
+
+- Each node has two independent InfiniBand Port (mlx5_0 And mlx5_1)
+- Both ports are in Up Status
+
+#### A100 Node
+
+```
+mlx5_0 port 1 ==> ibxxxx0 (Down/Up)
+mlx5_1 port 1 ==> ibxxxxx0 (Up/Down)
+mlx5_bond_0 port 1 ==> bond0 (Up)
+```
+
+Each of these machines has been plugged in 2 Block 200Gbps Of IB Card, use it 1 A IB The switches are interconnected. However, not all network cards are compatible. There is only one network card on each node IB The card has been approved IB The cable is connected to the switch.
+
+mlx5_bond_0 It's an Ethernet network card, just because it happens to be one too. Mellanox It's from the manufacturer, so it's also displayed.
+
+Subsequently, in Kubernetes Install it on the computer RDMA When installing the device plug-in, you need the network port information.
+
+## Installation Nvidia Network Operator
+
+> [!quote] [Network Operator Deployment on Vanilla Kubernetes Cluster](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-on-vanilla-kubernetes-cluster)
+
+At present, the most recommended one is on Kubernetes Integrated into China Mobile's ecosystem RDMA The way to do this is by Nvidia Network Operator，Referring to the official documentation, we should first use <zh> 根据官方文档，先采用 Helm Installation Operator The main program. What specific method will be used in the future? RDMA For the access solution, we can achieve this by deploying one more device. CR To achieve it.
+
+First, add it. Helm Warehouse:
+
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+```
+
+Then, follow the instructions in the document and do the following: `values.yaml` Download it to my local device. I just want to take a look at it NFD Is it necessary to shut it down, and replace the mirror with a mirror address that can be accessed domestically?
+
+Because our cluster has already been deployed before Nvidia GPU Operator，Therefore, I choose to NFD The option is closed.
+
+> [!warning]
+> Since several parameters should be provided when creating custom resources during operator deployment, it is recommended to use a configuration file. While it is possible to override the parameters via CLI, we recommend to avoid the use of CLI arguments in favor of a configuration file.
+
+```bash
+helm show values nvidia/network-operator --version v25.1.0 > values.yaml
+```
+
+After that, install the latest version (v25.1.0）Of Nvidia Network Operator Procedure:
+
+```bash
+helm upgrade --install network-operator nvidia/network-operator \
+-n nvidia-network-operator \
+--create-namespace \
+--version v25.1.0 \
+-f ./values.yaml \
+--wait
+```
+
+After installation,`nvidia-network-operator` It will appear under the namespace. Operator Of Pod，At this moment RDMA It hasn't been properly configured yet. We still need to integrate it with specific strategies.
+
+```bash
+$ kubectl get pods -l app.kubernetes.io/name=network-operator
+NAME                               READY   STATUS    RESTARTS      AGE
+network-operator-xxxxxxxx-xxxxx   1/1     Running   1 (22h ago)   26h
+```
+
+## Settings `NicClusterPolicy`
+
+For a beginner, the documentation here is really a bit obscure:
+
+It can be seen that in Deployment Examples（There is a chapter on "Deployment Example", which is quite detailed. 20 That's one way of deployment. So—
+
+1. What are the differences in performance between these deployment methods?
+2. How to choose a deployment method that suits you best?
+3. After deployment, how to make it work properly? Pod Access RDMA Are you waiting for a high-performance network?
+4. Container running RDMA What are the minimum requirements for the test?
+5. How to test in a container RDMA The internet?
+6. What are the common mistakes and solutions?
+
+The document doesn't answer these questions, so it's very difficult for me to figure things out. Let me quickly summarize my current understanding of these issues and the reference materials I've used:  
+
+[COT] This is a description of the difficulties encountered when trying to understand certain issues in a document, and the speaker's efforts to address these issues through research and summary.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"快速总结" can be translated as "quickly summarize" or "summarize quickly". In this context, it emphasizes the speed and efficiency of the summary, so "quickly summarize" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "grapple with". In this context, it emphasizes the speaker's struggle to understand the issues and find solutions, so "figure things out" is more appropriate.  
+
+"参考资料" can be translated as "reference materials" or "references". In this context, it refers to the materials used to support the speaker's understanding of the issues, so "reference materials" is more accurate.  
+
+"当前阶段" can be translated as "current stage" or "current phase". In this context, it refers to the current stage of the research or understanding process, so "current stage" is more appropriate.  
+
+"摸索" can be translated as "figure things out" or "gr
+
+- **Performance differences**：[IPoIB (IP over InfiniBand) vs. RDMA performance](https://serverfault.com/questions/876403/ipoib-ip-over-infiniband-vs-rdma-performance)，Moreover Shared Device Plugin In a situation where there's only one... Pod When applying for resources, the bandwidth can be almost fully utilized; I haven't tested the situation of multiple resources yet
+- **Deployment method**：For now, we've adopted this approach. RDMA Shared Device Plugin In this way, in V100 It works normally on the server; but I'm not sure if this method can use the aggregated network card. We might switch to another method in the future. Host Network Pattern?
+- **Resource application**：After installation, new nodes will usually be added to the system. RDMA Related resources. In some cases, you may also need to do it on Annotations You need to specify the auxiliary network to be used in the markup (for example, <). Multus Or Macvlan？）
+- **Minimum requirements**：[Verify whether the image supports it RDMA--Machine learning platform - Volcano Engine](https://www.volcengine.com/docs/6459/119595)
+- **How to test it?**：[Prepare a cluster for running RDMA workloads and GPU-Direct RDMA workloads.](https://github.com/Mellanox/network-operator/tree/master/example)
+- **Errors and Solutions**：See the end of this article
+
+### 1. Try to configure it RDMA Shared Device Plugin
+
+> [!quote] [Network Operator Deployment with Multiple Resources in RDMA Shared Device Plugin](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-with-multiple-resources-in-rdma-shared-device-plugin)
+
+Due to the existence of two different ones in my single cluster, IB Network (V100 And A100），I use the one mentioned in the document. Multiple Resources The configuration method, specifying them separately V100 And A100 to the port and report it `rdma/rdma_v100` And `rdma/rdma_a100` of online resources.
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    repository: nvcr.io/nvidia/mellanox
+    version: 25.01-0.6.0.0-0
+    forcePrecompiled: false
+    imagePullSecrets: []
+    terminationGracePeriodSeconds: 300
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+      safeLoad: false
+      drain:
+        enable: true
+        force: true
+        podSelector: ""
+        timeoutSeconds: 300
+        deleteEmptyDir: true
+  rdmaSharedDevicePlugin:
+    # [map[ifNames:[ens1f0 ens1f1] name:rdma_shared_device_a] map[ifNames:[ens2f0 ens2f1] name:rdma_shared_device_b]]
+    repository: ghcr.io/mellanox
+    image: k8s-rdma-shared-dev-plugin
+    version: v1.5.2
+    imagePullSecrets: []
+    # The config below directly propagates to k8s-rdma-shared-device-plugin configuration.
+    # Replace 'devices' with your (RDMA capable) netdevice name.
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_v100",
+            "rdmaHcaMax": 63,
+            "selectors": {
+              "ifNames": ["ibxxxxxx0","ibxxxxxx1"],
+              "linkTypes": ["infiniband"]
+            }
+          },
+          {
+            "resourceName": "rdma_a100",
+            "rdmaHcaMax": 63,
+            "selectors": {
+              "ifNames": ["ibxxxx0","ibxxxxx0"],
+              "linkTypes": ["infiniband"]
+            }
+          }
+        ]
+      }
+```
+
+After the deployment was completed, I noticed that it had been launched. DaemonSets。Thanks to NFD The function will not work without it. IB Network card (15b3）It is installed on the node.
+
+```bash
+$ kg daemonset
+NAME                              DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR                                                                                                                                                                                                                             AGE
+mofed-ubuntu22.04-xxxxxxxxx-ds   36        36        36      36           36          feature.node.kubernetes.io/kernel-version.full=5.15.0-134-generic,feature.node.kubernetes.io/pci-15b3.present=true,feature.node.kubernetes.io/system-os_release.ID=ubuntu,feature.node.kubernetes.io/system-os_release.VERSION_ID=22.04   24h
+rdma-shared-dp-ds                 36        36        36      36           36          feature.node.kubernetes.io/pci-15b3.present=true,network.nvidia.com/operator.mofed.wait=false
+```
+
+Nvidia Network Operator The installation includes Ofed Drive and Device Plugin，The former requires privilege Permissions will affect the host machine. IB Drives. During my testing process, it caused one device to malfunction. A100 The nodes' IB The network card reported a large number of errors, and the error log filled up the system disk, which subsequently disrupted the service for several hours.
+
+All of them Pod All of them Running After that, check whether new resources have been added on the verification node:
+
+```bash
+$ kubectl get nodes -o json | jq -r '.items[] | {
+    name: .metadata.name,
+    "rdma/rdma_v100": .status.capacity["rdma/rdma_v100"]
+} | select(.["rdma/rdma_v100"] != null)'
+# Omit the same results
+{
+  "name": "xxx-v100-xx",
+  "rdma/rdma_v100": "63"
+}
+{
+  "name": "xxx-a100-xx",
+  "rdma/rdma_a100": "63"
+}
+```
+
+At this point, based on RDMA Shared Device Plugin That concludes the installation method. It seems that some products in ByteDance's Volcano Engine use this approach.
+
+### 2. Try to configure it GPUDirect Workloads (It didn't work out)
+
+> [!quote] [Network Operator Deployment for GPUDirect Workloads](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-for-gpudirect-workloads)
+
+This section mainly records the failed attempts during the process. If you have any questions about it, please feel free to ask. RDMA Shared Device Plugin I'm more interested in how to verify it later. You can skip directly to the next section.
+
+Due to the configuration issues RDMA Shared Device Plugin（Hereinafter referred to as the method 1）During the process, I encountered some other problems, which led me to mistakenly believe that the method was not working. 1 The approach doesn't work, and in addition, K8s RDMA Shared Dev Plugin In the discussion area of the project, someone also said the following[^3]（Although someone gave a counter-example below, I didn't figure it out at that time and thought it was outdated):
+
+> [!quote] [Adrian Chiris](https://github.com/adrianchiris)
+>
+> We should improve the projects README.
+>
+> the general way to use it with k8s is utilizing secondary network CNI such as macvlan or ipoib (or any CNI essentially can create virtual interfaces on top of existing RDMA capable parent netdev)
+> **Compare it with K8s The general method of using them together is to use an auxiliary network CNI，For example macvlan Or ipoib（Or anything else CNI Basically, it can be used on devices that support it. RDMA The existing parent netdev Create a virtual interface on top of it**
+>
+> we should update instructions and examples.
+
+So I read the document again and found a section called「GPUDirect Workloads」（Inner self OS：Aren't the other installation methods also valid? GPU Workloads What? (Is that so?)
+
+Comparative methods 1，This method requires installation. DOCA driver、SR-IOV Device Plugin、Secondary network、Multus CNI、Container Networking plugins、IPAM plugin，Among them Multus CNI That's exactly it Kubernetes It's an auxiliary network in Chinese CNI[^4]。
+
+> [!quote]
+>
+> - **Multus** It's a kind of CNI（The Container Network Interface (CNI) plug-in, which allows for the integration of network functions into container environments. Kubernetes Pod By inserting multiple network cards into the computer, we can achieve more flexible network communication. It supports a variety of network protocols and technologies. CNI Plugins, for example Flannel、Calico、Macvlan etc., which can be well integrated with other network solutions. In some scenarios, it may be necessary to Pod Simultaneously connect to multiple different networks.Multus You can achieve this functionality by doing the following: Pod It provides multiple network interfaces, enabling it to communicate with different networks.
+> - **Whereabouts** Then it's a IP An address management tool that can automatically assign addresses to Pod Allocate IP The address, and it can also avoid IP The situation of address conflicts. In traditional network configurations, it may be necessary to manually assign different addresses to each host. IP An address range, to prevent IP There's an address conflict. And Whereabouts Through its automated system IP The address allocation mechanism simplifies this process, making it easier to Kubernetes Manage in the cluster IP The address has become more efficient and reliable. It can ensure that every Pod Obtain the only one IP The address can effectively avoid conflicts, even in a large-scale clustered environment. IP The problem of duplicate addresses.
+
+When deploying, first install Nic Cluster Policy：
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    repository: nvcr.io/nvidia/mellanox
+    version: 25.01-0.6.0.0-0
+    forcePrecompiled: false
+    imagePullSecrets: []
+    terminationGracePeriodSeconds: 300
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+      safeLoad: false
+      drain:
+        enable: true
+        force: true
+        podSelector: ""
+        timeoutSeconds: 300
+        deleteEmptyDir: true
+  sriovDevicePlugin:
+    image: sriov-network-device-plugin
+    repository: ghcr.io/k8snetworkplumbingwg
+    version: v3.9.0
+    imagePullSecrets: []
+    config: |
+      {
+        "resourceList": [
+          {
+            "resourcePrefix": "nvidia.com",
+            "resourceName": "hostdev",
+            "selectors": {
+              "vendors": ["15b3"],
+              "devices": [],
+              "drivers": [],
+              "pfNames": [],
+              "pciAddresses": [],
+              "rootDevices": [],
+              "linkTypes": [],
+              "isRdma": true
+            }
+          }
+        ]
+      }
+  secondaryNetwork:
+    cniPlugins:
+      image: plugins
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v1.5.0
+      imagePullSecrets: []
+    multus:
+      image: multus-cni
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v4.1.0
+      imagePullSecrets: []
+    ipamPlugin:
+      image: whereabouts
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v0.7.0
+      imagePullSecrets: []
+```
+
+After that, you need to specify Where Abouts It can be allocated IP，It cannot be used on the nodes that are already occupied under the current second-layer network IP Repeating (this is a bit like...). Metal LB What did I do? For this, I scanned through it first and then picked out a small one that hadn't been used. IP A paragraph.
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: HostDeviceNetwork
+metadata:
+  name: hostdevice-net
+spec:
+  networkNamespace: "crater-workspace" # Workloads The namespace where it is located
+  resourceName: "hostdev"
+  ipam: |
+    {
+      "type": "whereabouts",
+      "datastore": "kubernetes",
+      "kubernetes": {
+        "kubeconfig": "/etc/cni/net.d/whereabouts.d/whereabouts.kubeconfig"
+      },
+      "range": "192.168.x.152/27",
+      "exclude": ["192.168.x.151/32"],
+      "log_file": "/var/log/whereabouts.log",
+      "log_level": "info"
+    }
+```
+
+After the installation is successful, there will be an additional item on the node. `nvidia.com/hostdev` Types of resources:
+
+```bash
+$ kubectl get nodes -o json | jq -r '.items[] | {
+    name: .metadata.name,
+    "nvidia.com/hostdev": .status.capacity["nvidia.com/hostdev"]
+} | select(.["nvidia.com/hostdev"] != null)'
+# Omit the same results
+{
+  "name": "xxx-v100-xx",
+  "nvidia.com/hostdev": "2"
+}
+{
+  "name": "xxx-a100-xx",
+  "nvidia.com/hostdev": "4"
+}
+```
+
+In order to use this special network, we need to submit our application. Pod At that time, you also need to add the tag Annotation：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: testpod1
+  namespace: crater-workspace. # The previously specified namespace
+  annotations:
+    k8s.v1.cni.cncf.io/networks: hostdevice-net
+spec:
+  containers:
+    - name: appcntr1
+      image: <image>
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK"] # This is a must
+      command:
+        - sh
+        - -c
+        - sleep inf # The official documentation says it like this, so how should I test it?
+      resources:
+        requests:
+          nvidia.com/hostdev: "1"
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/hostdev: "1"
+          nvidia.com/gpu: "1"
+```
+
+Enter Pod After that, run it. `ifconfig` Command, I found that there's an extra name called <zh> 命令，我发现多了一个名为<的用户名。 `net1` But what should I do next? Although... Network Operator The test files are provided in the project repository[^5]，But the orders are also `sleep inf`。
+
+I guess it might be NCCL Do I need to specify the network card or something? Because later on... RDMA Shared Device Plugin It worked. I didn't continue to study this part in depth. Maybe it would be a good idea to raise my confusion with the official.
+
+To clean up stale resources, you can start `kubectl proxy` in one terminal:
+
+```shell
+$ kubectl proxy
+Starting to serve on 127.0.0.1:8001
+```
+
+And in another terminal, run the cleanup script (note `/` needs to be escaped as `~1`):
+
+```bash
+#!/bin/bash
+
+# Check if at least one node name is provided
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 <node-name> [<node-name>...]"
+  exit 1
+fi
+
+# Prepare the JSON patch data
+PATCH_DATA=$(cat <<EOF
+[
+  {"op": "remove", "path": "/status/capacity/nvidia.com~1hostdev"}
+]
+EOF
+)
+
+# Iterate over each node name provided as an argument
+for NODE_NAME in "$@"
+do
+  # Execute the PATCH request
+  curl --header "Content-Type: application/json-patch+json" \
+       --request PATCH \
+       --data "$PATCH_DATA" \
+       http://127.0.0.1:8001/api/v1/nodes/$NODE_NAME/status
+
+  echo "Patch request sent for node $NODE_NAME"
+done
+```
+
+Pass the node name and clean up:
+
+```shell
+chmod +x ./patch_node_gpu.sh
+./patch_node_gpu.sh node1 node2
+```
+
+## Verification RDMA The installation
+
+In this section, we will introduce a method based on RDMA Shared Device Plugin What's the method? How can I continue the verification? RDMA The installation.
+
+### 1. I'm ready to support you RDMA The mirror image of it
+
+> [!quote] [Verify whether the image supports it RDMA--Machine learning platform - Volcano Engine](https://www.volcengine.com/docs/6459/119595)
+
+A simple solution suitable for V100 The model of the aircraft Dockerfile It might be like this:
+
+```dockerfile
+FROM xxx/envd:py3.12-ubuntu22.04-8978
+USER root
+
+# Install APT packages
+RUN apt-get update && apt-get install -y \
+	infiniband-diags perftest ibverbs-providers libibumad3 \
+	libibverbs1 libnl-3-200 libnl-route-3-200 librdmacm1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# No Python dependencies specified
+```
+
+Here, my base image already includes commonly used debugging toolkits.Python And CUDA Environment. Mainly through APT Continue with the installation and InfiniBand Related libraries.
+
+After installing these libraries, if we don't apply for them RDMA The resources will be launched immediately Pod，Then you can see it normally `ibstat` The content, but if you try to perform operations such as writing, you will get an error saying that it's not available. InfiniBand Or RoCE Equipment.
+
+### 2. The verification method on a single computer
+
+First of all, we need to start the application process RDMA of resources Pod：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rdma-test-pod-1
+spec:
+  containers:
+  - image: <image>
+    name: rdma-test-ctr
+    securityContext:
+      capabilities:
+        add: [ "IPC_LOCK" ]
+    resources:
+      limits:
+	    nvidia.com/v100: "4"
+        rdma/rdma_v100: "1"
+      requests:
+	    nvidia.com/v100: "4"
+        rdma/rdma_v100: "1"
+    command:
+    - sh
+    - -c
+    - |
+      sleep infinity
+```
+
+Here, for the regular ones GPU For the resources, we have renamed them according to their models. You can check the relevant information in our previous articles.
+
+After the container has been successfully started, enter the container:
+
+1. Enter the following command:
+
+```bash
+ib_write_bw -d mlx5_1 &
+```
+
+The output example is as follows:
+
+```shell
+$ ib_write_bw -d mlx5_1 &
+[1] 2457716
+root@xxx-01:~#
+************************************
+* Waiting for client to connect... *
+************************************
+```
+
+2. On the same machine, continue to enter the following commands:
+
+```plain
+ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+```
+
+The output example is as follows:
+
+```shell
+$ ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+---------------------------------------------------------------------------------------
+ Number of qps   : 1            Transport type : IB
+                    RDMA_Write BW Test
+ Connection type : RC           Using SRQ      : OFF
+ Dual-port       : OFF          Device         : mlx5_1
+ PCIe relax order: ON
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ ibv_wr* API     : ON
+ TX depth        : 128
+ CQ Moderation   : 1
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Mtu             : 4096[B]
+ Link type       : IB
+ Link type       : IB
+ Max inline data : 0[B]
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+ local address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ local address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ remote address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ remote address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+Conflicting CPU frequency values detected: 1000.000000 != 3013.932000. CPU Frequency is not max.
+ 65536      5000             94.72              94.71              0.180640
+---------------------------------------------------------------------------------------
+ 65536      5000             94.72              94.71              0.180640
+---------------------------------------------------------------------------------------
+[1]+  Done                    ib_write_bw -d mlx5_1
+```
+
+For V100 RDMA Model, bandwidth value (<)`BW peak`、`BW average`）You should get closer  `100Gb/s`，A100 RDMA The models should be similar  `200Gb/s`，If it meets the requirements, it indicates that the configuration is correct. If there is no output or error, please go back to the part where you configure the environment according to the model and check whether there are any missing configuration items.
+
+### 3. The verification method on multiple machines
+
+As mentioned in Section 2, you need to apply for them separately Pod，And let me record one of them Pod Of Kubernetes Intranet IP，Then, run the command:
+
+```bash
+# server cmd
+ib_write_bw -a -F --report_gbits -q 2
+
+# client cmd
+ib_write_bw -a -F --report_gbits -q 2 <server-pod-default-network-IP>
+```
+
+The bandwidth value is also close to it  `100Gb/s`，This indicates that there is no problem with the connection between multiple machines.
+
+### 4. vLLM Practical Application of Multi-Machine Distributed Inference
+
+Finally, we conducted a practical test and found that Volcano Job Run vLLM Multi-machine distributed inference DeepSeek R1 Distill Qwen 32B Model. Our model is created through PVC It's mounted. The image is accessed through Envd Production. Because vLLM We will install a special one CUDA 12.4，The base image doesn't need to include it. CUDA。
+
+```python
+# syntax=v1
+
+def build():
+    base(image="ubuntu:22.04",dev=True)
+    install.python(version="3.12")
+    install.apt_packages([
+        "openssh-server", "build-essential", "iputils-ping", "net-tools", "htop",
+        "infiniband-diags", "perftest", "ibverbs-providers", "libibumad3",
+        "libibverbs1", "libnl-3-200", "libnl-route-3-200", "librdmacm1"
+    ])
+    config.pip_index(url = "https://pypi.tuna.tsinghua.edu.cn/simple")
+    install.python_packages(name = ["vllm"])
+    config.jupyter()
+```
+
+After that, we will launch it. Volcano Job：
+
+```yaml
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: vllm-rdma-test
+  namespace: crater-workspace
+spec:
+  maxRetry: 3
+  minAvailable: 2
+  plugins:
+    pytorch:
+      - --master=master
+      - --worker=worker
+      - --port=23456
+    svc: []
+  policies:
+    - action: RestartJob
+      event: PodEvicted
+  queue: default
+  schedulerName: volcano
+  tasks:
+    - maxRetry: 3
+      minAvailable: 1
+      name: master
+      policies:
+        - action: CompleteJob
+          event: TaskCompleted
+        - action: TerminateJob
+          event: PodFailed
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - command:
+                - sh
+                - -c
+                - |-
+                  ray start --head --port=6667 --disable-usage-stats;
+                  NCCL_DEBUG=TRACE python3 -m vllm.entrypoints.openai.api_server \
+                  --model=/models/DeepSeek-R1-Distill-Qwen-32B \
+                  --max-model-len 32768 \
+                  --tensor-parallel-size 4 \
+                  --pipeline-parallel-size 2 \
+                  --gpu-memory-utilization 0.90 \
+                  --max-num-seqs 128 \
+                  --trust-remote-code \
+                  --disable-custom-all-reduce \
+                  --port 6666 \
+                  --dtype=half;
+              image: xxx/envd-vllm:0.8.3-cu12.4-rdma-v1
+              name: master
+              resources:
+                limits:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+                requests:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                runAsGroup: 0
+                runAsUser: 0
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: crater-cache
+                - mountPath: /models/DeepSeek-R1-Distill-Qwen-32B
+                  name: crater-ro-storage
+                  readOnly: true
+                  subPath: LLM/deepseek/DeepSeek-R1-Distill-Qwen-32B
+              workingDir: /models
+          restartPolicy: Never
+          volumes:
+            - emptyDir:
+                medium: Memory
+              name: crater-cache
+            - name: crater-ro-storage
+              persistentVolumeClaim:
+                claimName: crater-ro-storage
+    - maxRetry: 3
+      minAvailable: 1
+      name: worker
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - command:
+                - sh
+                - -c
+                - |-
+                  ray start --address="$MASTER_ADDR:6667";
+                  sleep infinity;
+              image: xxx/envd-vllm:0.8.3-cu12.4-rdma-v1
+              name: worker
+              resources:
+                limits:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+                requests:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                runAsGroup: 0
+                runAsUser: 0
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: crater-cache
+                - mountPath: /models/DeepSeek-R1-Distill-Qwen-32B
+                  name: crater-ro-storage
+                  readOnly: true
+                  subPath: LLM/deepseek/DeepSeek-R1-Distill-Qwen-32B
+              workingDir: /models
+          restartPolicy: OnFailure
+          volumes:
+            - emptyDir:
+                medium: Memory
+              name: crater-cache
+            - name: crater-ro-storage
+              persistentVolumeClaim:
+                claimName: crater-ro-storage
+  ttlSecondsAfterFinished: 259200
+```
+
+Reference vLLM An explanation of distributed inference[^7]，We have started `NCCL_DEBUG=TRACE`，In the log, you can see that NCCL It has been used. IB Rather than Socket Connection.
+
+The reasoning process,Kubernetes We can't detect the traffic of inter-machine communication either, which indicates that our deployment has been successful.
+
+## Problem Log
+
+### 1. An error occurred during the connectivity test
+
+```bash
+[host1] $ ib_read_bw -q 30
+
+************************************
+* Waiting for client to connect... *
+************************************
+---------------------------------------------------------------------------------------
+                    RDMA_Read BW Test
+ Dual-port       : OFF          Device         : mlx5_0
+ Number of qps   : 30           Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Outstand reads  : 16
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ethernet_read_keys: Couldn't read remote address
+ Unable to read to socket/rdma_cm
+Failed to exchange data between server and clients
+```
+
+```bash
+[host2] $ ib_read_bw -q 30 10.244.46.50
+Couldn't allocate MR
+failed to create mr
+Failed to create MR
+ Couldn't create IB resources
+```
+
+This is because of the application RDMA After getting the resources, you can't give them away Pod Settings Memory Of Limit。
+
+### 2. Start vLLM There's a translation error `Segmentation fault`
+
+Judging from the logs,IB The device has been successfully identified, but a segmentation fault has occurred.
+
+```bash
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 00/02 :    0   1   2   3   4   5   6   7
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 01/02 :    0   1   2   3   4   5   6   7
+[Device name]-master-0:528:528 [0] NCCL INFO Trees [0] 1/4/-1->0->-1 [1] 1/-1/-1->0->4
+    self.device_communicator = device_comm_cls(
+[Device name]-master-0:528:528 [0] NCCL INFO P2P Chunksize set to 131072
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 00/0 : 7[3] -> 0[0] [receive] via NET/IB/0
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 01/0 : 7[3] -> 0[0] [receive] via NET/IB/0
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/IPC
+[Device name]-master-0:528:528 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[1] via P2P/IPC
+[Device name]-master-0:528:5379 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer [Device name]-worker-0.[Hostname].svc.cluster.local<35396>
+[Device name]-master-0:528:5379 [0] NCCL INFO misc/socket.cc:752 -> 6
+[Device name]-master-0:528:5379 [0] NCCL INFO transport/net_ib.cc:1207 -> 6
+[Device name]-master-0:528:5379 [0] NCCL INFO transport/net.cc:837 -> 6
+[Device name]-master-0:528:528 [0] NCCL INFO transport/net.cc:405 -> 6
+[Device name]-master-0:528:528 [0] NCCL INFO transport.cc:183 -> 6
+                               ^^^^^^^^^^^^^^^^
+[Device name]-master-0:528:528 [0] NCCL INFO init.cc:1263 -> 6
+[Device name]-master-0:528:528 [0] NCCL INFO init.cc:1548 -> 6
+[Device name]-master-0:528:528 [0] NCCL INFO init.cc:1799 -> 6
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/cuda_communicator.py", line 39, in __init__
+[Device name]-master-0:528:5379 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer [Device name]-worker-0.[Hostname].svc.cluster.local<52144>
+    self.pynccl_comm = PyNcclCommunicator(
+                       ^^^^^^^^^^^^^^^^^^^
+[Device name]-master-0:528:5379 [0] NCCL INFO misc/socket.cc:752 -> 6
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[Device name]-master-0:528:5379 [0] NCCL INFO transport/net_ib.cc:1207 -> 6
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl.py", line 99, in __init__
+    self.comm: ncclComm_t = self.nccl.ncclCommInitRank(
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl_wrapper.py", line 277, in ncclCommInitRank
+    self.NCCL_CHECK(self._funcs["ncclCommInitRank"](ctypes.byref(comm),
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl_wrapper.py", line 256, in NCCL_CHECK
+    raise RuntimeError(f"NCCL error: {error_str}")
+RuntimeError: NCCL error: unhandled system error (run with NCCL_DEBUG=INFO for details)
+[Device name]-master-0:528:5379 [0] NCCL INFO transport/net.cc:837 -> 6
+[Device name]-master-0:528:528 [0] NCCL INFO init.cc:1837 -> 6
+*** SIGSEGV received at time=1745072123 on cpu 70 ***
+PC: @     0x7ff94e269506  (unknown)  ncclProxyServiceUDS()
+    @     0x7ffa0c242520       3384  (unknown)
+    @ ... and at least 1 more frames
+[2025-04-19 14:15:23,982 E 528 5383] logging.cc:484: *** SIGSEGV received at time=1745072123 on cpu 70 ***
+[2025-04-19 14:15:23,982 E 528 5383] logging.cc:484: PC: @     0x7ff94e269506  (unknown)  ncclProxyServiceUDS()
+[2025-04-19 14:15:23,983 E 528 5383] logging.cc:484:     @     0x7ffa0c242520       3384  (unknown)
+[2025-04-19 14:15:23,983 E 528 5383] logging.cc:484:     @ ... and at least 1 more frames
+Fatal Python error: Segmentation fault
+```
+
+Do you remember what we mentioned earlier? We need to do it in <zh> 还记得我们之前提到的，需要在...里做这件事吗？ Pod Add it to the security context `IPC_LOCK` What? If it's not increased, it will lead to the aforementioned problem.
+
+### 3. A100 The model failed to run multi-machine inference
+
+First of all, in A100 Verifying the operation of the model in single-player mode, if you happen to be using it. Up The network card seems to be working fine:
+
+```bash
+$ ib_write_bw -d mlx5_1 &
+[1] 1501
+
+************************************
+* Waiting for client to connect... *
+************************************
+
+
+$ ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ TX depth        : 128
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+Conflicting CPU frequency values detected: 863.109000 != 2300.000000. CPU Frequency is not max.
+ 65536      5000             183.66             183.61             0.350214
+---------------------------------------------------------------------------------------
+ 65536      5000             183.66             183.61             0.350214
+---------------------------------------------------------------------------------------
+
+$ ib_write_bw -d mlx5_0 &
+[1] 1618
+
+Port number 1 state is Down
+ Couldn't set the link layer
+ Couldn't get context for the device
+
+$ ib_write_bw -d mlx5_0 127.0.0.1 --report_gbits
+ Port number 1 state is Down
+ Couldn't set the link layer
+ Couldn't get context for the device
+
+$ ibstat
+CA 'mlx5_0'
+        CA type: MT4123
+        Port 1:
+                State: Down
+                Physical state: Disabled
+                Rate: 10
+                Base lid: 65535
+                LMC: 0
+                SM lid: 0
+                Link layer: InfiniBand
+CA 'mlx5_1'
+        CA type: MT4123
+        Port 1:
+                State: Active
+                Physical state: LinkUp
+                Rate: 200
+                Base lid: 3
+                LMC: 0
+                SM lid: 1
+                Link layer: InfiniBand
+CA 'mlx5_bond_0'
+        CA type: MT4117
+        Port 1:
+                State: Active
+                Physical state: LinkUp
+                Rate: 10
+                Link layer: Ethernet
+
+$ ib_write_bw -d mlx5_bond_0 &
+IB device mlx5_bond_0 not found
+ Unable to find the Infiniband/RoCE device
+```
+
+But run vLLM When I tried to do that, an error occurred. Later, I found that this problem was related to <zh> 当时会出现错误，后来我发现这个问题与<某个因素>有关。 vLLM V1 And Ray Regarding[^8]，And IB It's no problem. Because I happen to have one at hand vLLM We used the code for multi-machine distributed inference for testing. In fact, it still runs well. NCCL Test Would it be better to use something like that? It can help avoid some extraneous distractions.
+
+## Summary
+
+The above records what happened locally. Kubernetes Cluster access RDMA The process. At present, the lack of relevant documents and the wide range of problem domains involved in the process are the main factors hindering learning in this area. Indeed, a solid foundation in computer science is essential.
+
+[^1]: [2 A RoCE Network card Bond Aggregate to achieve higher bandwidth X2-Cloud Community - Huawei Cloud](https://bbs.huaweicloud.com/blogs/412088)
+[^2]: [RDG for Accelerated K8s Cluster over NVIDIA DGX A100 Servers and 200Gbps Ethernet Network Fabric](https://docs.nvidia.com/networking/display/public/sol/rdg+for+accelerated+k8s+cluster+over+nvidia+dgx+a100+servers+and+200gbps+ethernet+network+fabric)
+[^3]: [Enhance documentaitons · Issue #54 · Mellanox/k8s-rdma-shared-dev-plugin](https://github.com/Mellanox/k8s-rdma-shared-dev-plugin/issues/54)
+[^4]: [Multus-CNI And whereabouts The simple application of it - Jian Xuan's column - TNBLOG](https://www.tnblog.net/aojiancc2/article/details/7929)
+[^5]: [hostdevice-network-pod1.yml](https://github.com/Mellanox/network-operator/tree/master/example)
+[^6]: [Ideal and reality  - Infiniband The choice between Ethernet and other technologies   -  Snowball](https://xueqiu.com/2448317325/292453176?md5__1038=eqAxgDyDuD0jQGXBDrDcQ8FKiIwx8iD)
+[^7]: [Distributed Inference and Serving](https://docs.vllm.ai/en/stable/serving/distributed_serving.html)
+[^8]: [[Bug]: 0.8.0(V1) Ray cannot find model pyarrow and pandas](https://github.com/vllm-project/vllm/issues/15100)

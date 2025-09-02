@@ -1,0 +1,111 @@
+---
+title: Mirror creation
+description: To enable users to customize their own images, we provide a variety
+  of image creation functions.
+---
+
+
+
+## Go to the mirror creation page
+
+You can enter the image creation page by clicking on "Image Creation" in the "Image Management" menu under the "Data and Images" category in the sidebar.
+
+![Image](./img/imagebuild-homepage.webp)
+
+After entering the page, you can see the total number of mirrors you have created using the mirror-making function at the top of the page, as well as the number of mirrors you have downloaded. Harbor You can check the storage usage and limits of the mirror repository, and also view your Harbor Project name. You can enter it here. Harbor Find the image you created in the corresponding project.
+
+In the example shown in the picture, since the user directly uploaded the locally created image instead of creating it through the "Image Creation" function, although the total number of images here is zero, the storage usage is non-zero. For a tutorial on this part, please refer to "Uploading Local Images".
+
+The "Get Initial Credentials" button on the top right side is used to obtain Harbor Your username and password, which allow you to log in directly Harbor Warehouse, which allows you to manually upload images or view them Harbor The image in the warehouse. However, it's important to note that clicking on this button again will reset your password.
+
+## Choose the method of creating a mirror image
+
+At present, we offer**Four kinds**The methods of creating a mirror image are as follows:
+
+1. Python+CUDA Custom build
+2. Build based on the existing image
+3. Based on Dockerfile Build
+4. Based on Envd Build
+
+You can select the construction method you want using the drop-down button shown in the figure, and then click the button to call up the construction form.
+
+![Image](./img/imagebuild-dropdown.webp)
+
+### 1. Python+CUDA Custom build
+
+In order to better meet users' demands for Python And CUDA For the need of version customization, we provide`Python+CUDA Custom build`The construction method of it.
+
+Users can select the corresponding options in the form. Python And CUDA Version. If necessary, users should fill it in according to the specifications APT Software packages and Python requirements With the content, you can easily build an image, and the built image can be applied to Jupyter Interactive assignments and Custom Customized homework. The detailed content of the form can be seen in the figure below.
+
+![Image](./img/imagebuild-python+cuda.webp)
+
+### 2. Build based on the existing image
+
+Considering that users may need to build new images based on existing ones, we have provided`Build based on the existing image`The construction method of it.
+
+This construction method requires you to fill out a form, in which you must select a base image and provide a brief description for the image, which will be displayed as the image's identifier. APT Software packages and Python You can leave the dependency field blank. If you need to install a software package, you can enter the package name, separating multiple packages with spaces. For example, if you need to install curl And tree，Then you can fill it out. `curl tree`。
+
+![Image](./img/imagebuild-package.webp)
+
+If the project you plan to run includes requirements.txt For the file, you can copy its content to Python Install it in the dependency folder, but it's important to note that...pip You may encounter unresolved issues when parsing dependencies. To avoid the failure of image building, you can first try to manually install the dependencies in the container and then fill in the dependencies based on the installation results. The above figure is an example of form filling. After completing the form, you can click on "Start Building" in the lower-right corner of the form to start image building.
+
+### 3. Based on Dockerfile Build
+
+Users with high demands for autonomy can choose to use it.`Based on Dockerfile Build`The construction method of this system can effectively meet users' flexible demands for images.
+
+If you choose this build method, you only need to fill in an image description and a complete and grammatically correct one. Dockerfile（Given the domestic network issues, it may be necessary to switch to another source during the corresponding download and code retrieval processes. Both of these steps are mandatory, and a possible example is shown in the figure below.
+
+![Image](./img/imagebuild-dockerfile.webp)
+
+The example used here Dockerfile See below.
+
+```dockerfile
+FROM gpu-harbor.act.buaa.edu.cn/user-liuyizhou/nvidia-pytorch:24.12-v1.2.1
+
+USER root
+
+RUN pip install onnxruntime-gpu && \
+    echo -e '#!/bin/bash\nunzip -o /home/$NB_USER/workspaces/test.zip -d /workspace/test' >> /usr/local/bin/before-notebook.d/prepare_workspace.sh && \
+    chmod +x /usr/local/bin/before-notebook.d/prepare_workspace.sh
+```
+
+You can start the image creation by clicking on "Start Creating" in the lower-right corner of the form.
+
+### 4. Based on Envd Build
+
+`Based onEnvdBuild`It provides the following options:**Class Python Grammar**The construction method of creating a mirror image. This construction method can well meet the needs of deep learning users for creating mirrors, and it has low learning cost, powerful construction functions, and fast construction speed. For more details, please refer to the link:
+
+<Callout title="Reference materials">
+
+- [Envd Get started quickly](https://envd.tensorchord.ai/guide/getting-started.html)
+- [Envd API Reference](https://envd.tensorchord.ai/api/starlark/v1/config.html)
+
+</Callout>
+
+In this build method, users need to fill in a short description, which will be displayed as the identifier of the image, and set the image name and image tag for the new image. Finally, they need to provide the complete information. Envd The script can be used to complete the mirror image build. For example, if a user wants to create a mirror image of a specific software package, they can simply run the script, and the mirror image will be automatically generated. Envd If you have any questions about the use of the script, please feel free to communicate with us at any time 👏🏻。
+
+![Image](./img/imagebuild-envd-build.webp)
+
+## View the mirror image
+
+After you click on "Start Making", you will be able to see the image you submitted for making in the list at the bottom of the page. The initial status should be "Waiting".
+
+![Image](./img/imagebuild-result.webp)
+
+You can view the detailed information by clicking on the description of the image. At this point, you will be able to see the detailed log of the image build under the "Build Log" tab, which will help you troubleshoot any potential issues.
+
+![Image](./img/imagebuild-log.webp)
+
+In addition, you can also switch the tab to "Dockerfile”Or "Envd Click on "Configuration" to view the forms that the system has generated for you or that you have filled out. Dockerfile Or Envd Script.
+
+![Image](./img/imagebuild-dockerfile-show.webp)
+
+Finally, if your image build is successful, you will be able to see the status of the image change to "Success" on that page, and you will be able to see the size of the completed image. Please note that due to Docker The hierarchical storage mechanism used means that the actual storage usage may be much smaller than the total size of all the images. At the same time, you can also see the type of the image you just created in the "Image List".Custom”Its mirror image, you will be able to use it to start "batch processing jobs" or "interactive jobs".
+
+![Image](./img/imagebuild-list.webp)
+
+## Import and export configurations
+
+When filling out the form you've created, you can also export your form as JSON Files, so that they can be imported from the files for reuse or further modification when needed next time.
+
+![Image](./img/imagebuild-save.webp)

@@ -1,0 +1,1003 @@
+---
+title: RDMA サポート
+description: RDMA
+---
+
+
+
+> - [K8s test via Infiniband network - Adapters and Cables / InfiniBand/VPI Adapter Cards - NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/k8s-test-via-infiniband-network/285610)
+> - [Running tightly coupled HPC/AI workloads with InfiniBand using NVIDIA Network Operator on AKS \| Microsoft Community Hub](https://techcommunity.microsoft.com/blog/azurehighperformancecomputingblog/running-tightly-coupled-hpcai-workloads-with-infiniband-using-nvidia-network-ope/4117209)
+> - [Basic Knowledge and Differences of RoCE, IB, and TCP Networks](https://support.huawei.com/enterprise/en/doc/EDOC1100203339)
+
+正式に始める前に、いくつかのことを確認しましょう。 RDMA 関連する基本知識：
+
+- **RDMA**：これはオペレーティングシステムのカーネルをバイパスするネットワーク通信技術であり、その中心はネットワークカードを通じてリモートメモリに直接アクセスし、従来の方法を回避することにあります。 TCP/IP プロトコルスタックのデータコピーとコンテキスト切り替えのオーバーヘッド。
+- **NVIDIA GPU Direct**[^2]：実現する GPU ビデオメモリとネットワークカード DMA エンジンの直接接続時、 GPU 遠隔ノードと通信する必要がある場合、データは直接送信できます。 InfiniBand または RoCE ネットワークカードでデータを送信する場合、ホストのメモリを経由して中継する必要はありません。
+- **ネットワーク仮想化**：Macvlan そして SR-IOV これらは2つの一般的なネットワーク仮想化ソリューションです。Macvlan コンテナーに仮想ネットワークカードインターフェイスを作成することを許可し、物理ネットワーク上で独立したデバイスとして表示させることができます。そして SR-IOV 物理ネットワークカードのハードウェア仮想化機能を利用して、単一の物理機能を（PF）複数の仮想機能に分類される（VF），それぞれの VF いずれも直接割り当てることができます Pod 使用。
+- **技術的なアプローチ**：現在 RDMA 主なものは InfiniBand そして RoCE 2つの実現方法[^6]。InfiniBand ネイティブサポート RDMA このプロトコルでは、専用交換機とサブネットマネージャーが必要で独立ネットワークを構築する必要があり、コストが高くなります。しかし、 RoCEv2 そして、従来のイーサネットインフラストラクチャに基づいて、 PFC そして ECN フロー制御メカニズムによる無損失伝送を保証し、インターネット企業で広く利用されています。
+
+私たちの実験室では InfiniBand プランに関しては、まず関連する機器をチェックする必要があります。 IB 情報：
+
+### 1. シングルノードテスト中 InfiniBand 関連情報
+
+まずホストマシンでテストを実施し、クラウドに移行する前にこれらのマシンをテストします。 IB いずれも通用です：
+
+```bash
+$ ibdev2netdev
+mlx5_0 port 1 ==> ibxxxxxx0 (Up)
+mlx5_1 port 1 ==> ibxxxxxx1 (Up)
+
+$ ibstat
+CA 'mlx5_0'
+        Port 1:
+                Link layer: InfiniBand
+CA 'mlx5_1'
+        Port 1:
+                Link layer: InfiniBand
+```
+
+- **Up**: それを示す InfiniBand ポートが正常にアクティブ化され、ネットワークに接続されました。
+- **Down**: それを示す InfiniBand ポートがアクティブでないか、ネットワーク接続ができない。
+
+### 2. 使用する Ansible ノードのネットワークカードを一括で表示する。
+
+グループ分け：
+
+```toml
+[ib-v100]
+xx.xx.xx.[xx:xx]
+
+[ib-a100]
+xx.xx.xx.[xx:xx]
+```
+
+バッチクエリスクリプトの作成：
+
+```yaml
+---
+- name: Run ibdev2netdev on InfiniBand hosts
+  hosts: ib-v100,ib-a100
+  gather_facts: no
+
+  tasks:
+    - name: Execute ibdev2netdev command
+      ansible.builtin.command: ibdev2netdev
+      register: ibdev_output
+      changed_when: false
+
+    - name: Display ibdev2netdev output
+      ansible.builtin.debug:
+        var: ibdev_output.stdout_lines
+```
+
+返り値が長すぎるので、完全なものは掲載しないでおきます。 `ibdev2netdev` 出力結果から、クラスターの2つのノードの InfiniBand 構成が異なります。
+
+#### V100 ノード
+
+```
+mlx5_0 port 1 ==> ibxxxxxx0 (Up)
+mlx5_1 port 1 ==> ibxxxxxx1 (Up)
+```
+
+これらのノードは、それぞれに2ポートのネットワークカードが搭載されています。 IB ネットワークカード、各ポートの最大速度は 100Gbp/s，それぞれに接続してください。 2 台 36 ポートの IB 交換機上で、2 交換機間にもまだあるよね 4 条項 100Gbps インターネットの接続回線。
+
+- 各ノードには2つの独立した InfiniBand ポート (mlx5_0 そして mlx5_1)
+- 両方のポートがオンになっています。 Up 状態
+
+#### A100 ノード
+
+```
+mlx5_0 port 1 ==> ibxxxx0 (Down/Up)
+mlx5_1 port 1 ==> ibxxxxx0 (Up/Down)
+mlx5_bond_0 port 1 ==> bond0 (Up)
+```
+
+このバッチのマシンはそれぞれにプラグが差し込まれています。 2 ブロック 200Gbps の IB カードを使って 1 個 IB スイッチ間の相互接続です。しかし、すべてのネットワークカードが互換ではないので、各ノードには1枚しかありません。 IB カードが通りません IB このケーブルはスイッチに接続されています。
+
+mlx5_bond_0 それはイーサネットカードですが、たまたまそうなだけです。 Mellanox メーカー製なので、それも表示されています。
+
+その後、<...> で。 Kubernetes インストールする RDMA デバイスをプラグインする際には、ネットワークポートの情報が必要になります。
+
+## インストール Nvidia Network Operator
+
+> [!quote] [Network Operator Deployment on Vanilla Kubernetes Cluster](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-on-vanilla-kubernetes-cluster)
+
+現在、最もお勧めのものは Kubernetes チャイニーズ・インテグレーテッド RDMA その方法は、 Nvidia Network Operator，公式ドキュメントを参照して、まずは <を使用します。 Helm インストール Operator メインプログラム。後ほど、具体的にどのような方法を採用するかは決まります。 RDMA アクセス ソリューションは、別のデバイスを再配備することで実現できます。 CR 実現しましょう。
+
+まず、追加してください。 Helm 倉庫：
+
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+```
+
+そして、ドキュメントに従って進めましょう。 `values.yaml` ローカルにダウンロードしておきましょう。主に見てみましょう。 NFD 閉鎖する必要があるかどうか、そしてミラーを国内でアクセス可能なミラーアドレスに置き換える必要があるかどうか。
+
+私たちのクラスターはすでにデプロイされているので、 Nvidia GPU Operator，そのため、<font size="3">简体中文</font>以外の言語を翻訳することはありません。 NFD オプションを閉じます。
+
+> [!warning]
+> Since several parameters should be provided when creating custom resources during operator deployment, it is recommended to use a configuration file. While it is possible to override the parameters via CLI, we recommend to avoid the use of CLI arguments in favor of a configuration file.
+
+```bash
+helm show values nvidia/network-operator --version v25.1.0 > values.yaml
+```
+
+その後、最新バージョンをインストールしてください（v25.1.0）の Nvidia Network Operator 手順：
+
+```bash
+helm upgrade --install network-operator nvidia/network-operator \
+-n nvidia-network-operator \
+--create-namespace \
+--version v25.1.0 \
+-f ./values.yaml \
+--wait
+```
+
+インストール後、`nvidia-network-operator` 名前空間の下に表示されます Operator の Pod，この時 RDMA まだ設定はされていないので、具体的な戦略に合わせて設定する必要があります。
+
+```bash
+$ kubectl get pods -l app.kubernetes.io/name=network-operator
+NAME                               READY   STATUS    RESTARTS      AGE
+network-operator-xxxxxxxx-xxxxx   1/1     Running   1 (22h ago)   26h
+```
+
+## 設定 `NicClusterPolicy`
+
+初心者にとって、ここのドキュメントはややわかりにくいものです。
+
+ご覧いただけるように、 Deployment Examples（導入例）1章で、約 20 そのような配備方法。それでは——
+
+1. これらのデプロイメント方法のパフォーマンスの違いはどのようなものでしょうか？
+2. 自分に合ったデプロイメント方法をどうやって選ぶの？
+3. 配備後、どうやって Pod アクセス RDMA 高性能ネットワークを待ってるの？
+4. コンテナの実行 RDMA テストの最低要件は何ですか？
+5. コンテナでテストする方法 RDMA インターネット？
+6. 一般的なエラーとその解決策はどのようなものでしょうか？
+
+文書にはこれらの質問に答えがないので、私の探求も非常に難しいものでした。まず、現段階での私の理解と参考資料を簡単にまとめておきましょう。
+
+- **性能の違い**：[IPoIB (IP over InfiniBand) vs. RDMA performance](https://serverfault.com/questions/876403/ipoib-ip-over-infiniband-vs-rdma-performance)，さらに Shared Device Plugin たった1つしかない場合には。 Pod リソースを申請するとき、帯域幅はほぼフルに使えます。複数の場合はまだテストしていません
+- **配置方法**：とりあえず、今のところはこれを採用しています。 RDMA Shared Device Plugin の方法で、 V100 正常に動作していますが、この方法でアグリゲーションされたネットワークカードを使用できるかどうかは不明です。後ほど切り替える可能性があります。 Host Network パターン？
+- **リソースの申請**：インストール後、通常、ノードが新しく追加されます。 RDMA 関連するリソース。場合によっては、<  で表示される必要もあります。 Annotations 使用したい補助ネットワークを選択してください（例：<）。 Multus または Macvlan？）
+- **最低要件**：[イメージがサポートされているかどうかを確認してください。 RDMA--機械学習プラットフォーム - 火山エンジン](https://www.volcengine.com/docs/6459/119595)
+- **どうやってテストするの？**：[Prepare a cluster for running RDMA workloads and GPU-Direct RDMA workloads.](https://github.com/Mellanox/network-operator/tree/master/example)
+- **エラーと解決策**：この記事の末尾をご覧ください。
+
+### 1. 設定を試みる。 RDMA Shared Device Plugin
+
+> [!quote] [Network Operator Deployment with Multiple Resources in RDMA Shared Device Plugin](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-with-multiple-resources-in-rdma-shared-device-plugin)
+
+私のシングルクラスターには2つの異なるものが存在するためです。 IB インターネット（V100 そして A100），私は文書で言及されているものを使用しています。 Multiple Resources の設定方法は、それぞれを指定するものです。 V100 そして A100 のポート、報告する `rdma/rdma_v100` そして `rdma/rdma_a100` のネットワークリソース。
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    repository: nvcr.io/nvidia/mellanox
+    version: 25.01-0.6.0.0-0
+    forcePrecompiled: false
+    imagePullSecrets: []
+    terminationGracePeriodSeconds: 300
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+      safeLoad: false
+      drain:
+        enable: true
+        force: true
+        podSelector: ""
+        timeoutSeconds: 300
+        deleteEmptyDir: true
+  rdmaSharedDevicePlugin:
+    # [map[ifNames:[ens1f0 ens1f1] name:rdma_shared_device_a] map[ifNames:[ens2f0 ens2f1] name:rdma_shared_device_b]]
+    repository: ghcr.io/mellanox
+    image: k8s-rdma-shared-dev-plugin
+    version: v1.5.2
+    imagePullSecrets: []
+    # The config below directly propagates to k8s-rdma-shared-device-plugin configuration.
+    # Replace 'devices' with your (RDMA capable) netdevice name.
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_v100",
+            "rdmaHcaMax": 63,
+            "selectors": {
+              "ifNames": ["ibxxxxxx0","ibxxxxxx1"],
+              "linkTypes": ["infiniband"]
+            }
+          },
+          {
+            "resourceName": "rdma_a100",
+            "rdmaHcaMax": 63,
+            "selectors": {
+              "ifNames": ["ibxxxx0","ibxxxxx0"],
+              "linkTypes": ["infiniband"]
+            }
+          }
+        ]
+      }
+```
+
+配備が完了した後、起動が開始されたことが確認されました。 DaemonSets。おかげで NFD 機能ですが、なければ翻訳はできないのです。 IB ネットワークカード（15b3）ノードにインストールされます。
+
+```bash
+$ kg daemonset
+NAME                              DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR                                                                                                                                                                                                                             AGE
+mofed-ubuntu22.04-xxxxxxxxx-ds   36        36        36      36           36          feature.node.kubernetes.io/kernel-version.full=5.15.0-134-generic,feature.node.kubernetes.io/pci-15b3.present=true,feature.node.kubernetes.io/system-os_release.ID=ubuntu,feature.node.kubernetes.io/system-os_release.VERSION_ID=22.04   24h
+rdma-shared-dp-ds                 36        36        36      36           36          feature.node.kubernetes.io/pci-15b3.present=true,network.nvidia.com/operator.mofed.wait=false
+```
+
+Nvidia Network Operator インストールには含まれています Ofed ドライブと Device Plugin，前者は必要です privilege 権限は、ホストマシンに影響を与えます。 IB ドライブ。私のテストの過程で、それが1台のコンピュータに問題を起こしました。 A100 ノードの IB ネットワークカードから多数のエラーが報告され、エラーログがシステムディスクでいっぱいになり、その結果、数時間にわたってサービスが中断されました。
+
+全ての Pod 全て Running その後、検証ノードに新しいリソースが追加されたかどうかを確認します。
+
+```bash
+$ kubectl get nodes -o json | jq -r '.items[] | {
+    name: .metadata.name,
+    "rdma/rdma_v100": .status.capacity["rdma/rdma_v100"]
+} | select(.["rdma/rdma_v100"] != null)'
+# 同じ結果は省略する
+{
+  "name": "xxx-v100-xx",
+  "rdma/rdma_v100": "63"
+}
+{
+  "name": "xxx-a100-xx",
+  "rdma/rdma_a100": "63"
+}
+```
+
+ここまで、<简体中文> 以外の言語を翻訳しないでください。 RDMA Shared Device Plugin これでインストール方法は終わりです。バイトダンスの火山エンジンの一部の製品は、この方法を利用しているようです。
+
+### 2. 設定を試みる。 GPUDirect Workloads (成功しなかった。)
+
+> [!quote] [Network Operator Deployment for GPUDirect Workloads](https://docs.nvidia.com/networking/display/kubernetes2501/getting-started-kubernetes.html#network-operator-deployment-for-gpudirect-workloads)
+
+このセクションでは、主にプロセスで失敗した試みの記録を示しています。もしあなたが <en> This section mainly records the failed attempts during the process. If you have any questions, please feel free to ask. RDMA Shared Device Plugin 後続の検証に興味がある方は、次のセクションに直接移動してください。
+
+設定を行う際に RDMA Shared Device Plugin（以下に簡単な方法を示します。 1）その過程で、私はいくつかの他の問題に直面し、その方法を誤解してしまいました。 1 そのアプローチはうまくいかず、そして... K8s RDMA Shared Dev Plugin プロジェクトのディスカッションエリアで、まだ誰かがこのような発言をしています[^3]（下に反例が挙げられていましたが、当時私はそれに気づきませんでした。私はそれが時代遅れだと思っていたのです。）
+
+> [!quote] [Adrian Chiris](https://github.com/adrianchiris)
+>
+> We should improve the projects README.
+>
+> the general way to use it with k8s is utilizing secondary network CNI such as macvlan or ipoib (or any CNI essentially can create virtual interfaces on top of existing RDMA capable parent netdev)
+> **それをと K8s 一般的な使用方法は、補助ネットワークを利用する方法です。 CNI，例えば macvlan または ipoib（または何でも CNI 基本的には、サポートされている場合にのみ可能です。 RDMA 既存の父親 netdev 以上に基づいて仮想インターフェイスを作成する）**
+>
+> we should update instructions and examples.
+
+そこで、私は再びドキュメントを読み、「」というセクションがあることに気づきました。「GPUDirect Workloads」（心の中 OS：それ以外のインストール方法はないの？ GPU Workloads ？）
+
+比較方法 1，この方法はインストールが必要です DOCA driver、SR-IOV Device Plugin、Secondary network、Multus CNI、Container Networking plugins、IPAM plugin，その中で Multus CNI まさに Kubernetes の中の補助ネットワークの1つ CNI[^4]。
+
+> [!quote]
+>
+> - **Multus** それは一種のものです。 CNI（コンテナネットワークインターフェイス）プラグインで、1つの環境で複数のコンテナを実行することができます。 Kubernetes Pod 複数のネットワークカードを inserted することで、より柔軟なネットワーク通信を実現できます。さまざまな機能をサポートします。 CNI プラグインなど、 Flannel、Calico、Macvlan など、他のネットワークソリューションとうまく統合できます。特定のシナリオでは、それが必要になる場合もあります。 Pod 同時に複数の異なるネットワークに接続する場合、Multus そうした機能を実現することができます。 Pod 複数のネットワークインターフェイスを提供し、異なるネットワークと通信を行うことができます。
+> - **Whereabouts** それは一つです IP アドレス管理ツールで、自動的にアドレスを管理できます。 Pod 配分 IP 住所で、そしてそれを避けることができます IP アドレスの競合状況。従来のネットワーク設定では、各ホストに異なるアドレスを手動で割り当てる必要がある場合があります。 IP アドレス範囲は、不正アクセスを防止するためのものです。 IP アドレスの競合です。そして Whereabouts その自動化によるもの。 IP アドレス割り当てメカニズムは、このプロセスを簡素化し、<内でそれを実現することができます。 Kubernetes クラスター内の管理 IP アドレスはより効率的で信頼性が高くなっています。それにより、すべてのアドレスが確実に送信されるようになります。 Pod 唯一のものを手に入れる IP アドレスは、大規模なクラスター環境であっても、効果的に回避することができます。 IP 住所が重複している問題。
+
+配備する際には、まずインストールを行います。 Nic Cluster Policy：
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    repository: nvcr.io/nvidia/mellanox
+    version: 25.01-0.6.0.0-0
+    forcePrecompiled: false
+    imagePullSecrets: []
+    terminationGracePeriodSeconds: 300
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+      safeLoad: false
+      drain:
+        enable: true
+        force: true
+        podSelector: ""
+        timeoutSeconds: 300
+        deleteEmptyDir: true
+  sriovDevicePlugin:
+    image: sriov-network-device-plugin
+    repository: ghcr.io/k8snetworkplumbingwg
+    version: v3.9.0
+    imagePullSecrets: []
+    config: |
+      {
+        "resourceList": [
+          {
+            "resourcePrefix": "nvidia.com",
+            "resourceName": "hostdev",
+            "selectors": {
+              "vendors": ["15b3"],
+              "devices": [],
+              "drivers": [],
+              "pfNames": [],
+              "pciAddresses": [],
+              "rootDevices": [],
+              "linkTypes": [],
+              "isRdma": true
+            }
+          }
+        ]
+      }
+  secondaryNetwork:
+    cniPlugins:
+      image: plugins
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v1.5.0
+      imagePullSecrets: []
+    multus:
+      image: multus-cni
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v4.1.0
+      imagePullSecrets: []
+    ipamPlugin:
+      image: whereabouts
+      repository: ghcr.io/k8snetworkplumbingwg
+      version: v0.7.0
+      imagePullSecrets: []
+```
+
+その後、指定する必要があります。 Where Abouts 配布可能 IP，現在の2層ネットワークの下で既に占有されているものとは組み合わせることはできません。 IP 繰り返し（これはちょっと似てるね） Metal LB 何をしたの？）。そのため、まず私はそれをスキャンし、使われていない小さなものを選び出しました。 IP 段。
+
+```yaml
+apiVersion: mellanox.com/v1alpha1
+kind: HostDeviceNetwork
+metadata:
+  name: hostdevice-net
+spec:
+  networkNamespace: "crater-workspace" # Workloads 所在の名前空間
+  resourceName: "hostdev"
+  ipam: |
+    {
+      "type": "whereabouts",
+      "datastore": "kubernetes",
+      "kubernetes": {
+        "kubeconfig": "/etc/cni/net.d/whereabouts.d/whereabouts.kubeconfig"
+      },
+      "range": "192.168.x.152/27",
+      "exclude": ["192.168.x.151/32"],
+      "log_file": "/var/log/whereabouts.log",
+      "log_level": "info"
+    }
+```
+
+インストールが成功した後、ノードに追加の項目が表示されます。 `nvidia.com/hostdev` リソースの種類：
+
+```bash
+$ kubectl get nodes -o json | jq -r '.items[] | {
+    name: .metadata.name,
+    "nvidia.com/hostdev": .status.capacity["nvidia.com/hostdev"]
+} | select(.["nvidia.com/hostdev"] != null)'
+# 同じ結果は省略する
+{
+  "name": "xxx-v100-xx",
+  "nvidia.com/hostdev": "2"
+}
+{
+  "name": "xxx-a100-xx",
+  "nvidia.com/hostdev": "4"
+}
+```
+
+この特別なネットワークを利用するには、提出する必要があります。 Pod その時、<font size="3">もう一度</font>翻訳する必要があります。</font>
+
+また、翻訳する際には原文の構文や用語に注意する必要があります。例えば、「I am a student.」 を翻訳する場合、「私は学生です。」 と書くのが最も自然です。</font>
+
+最後に、翻訳したテキストを確認し、自然で正確かどうかを確認する必要があります。特に、長文の場合は、句読点や段落の区切りが適切かどうかを確認する必要があります。</font> Annotation：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: testpod1
+  namespace: crater-workspace. # 以前に指定した名前空間
+  annotations:
+    k8s.v1.cni.cncf.io/networks: hostdevice-net
+spec:
+  containers:
+    - name: appcntr1
+      image: <image>
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK"] # これは必須です
+      command:
+        - sh
+        - -c
+        - sleep inf # 公式ドキュメントにはこう書かれているので、どうやってテストすればいいのでしょうか？
+      resources:
+        requests:
+          nvidia.com/hostdev: "1"
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/hostdev: "1"
+          nvidia.com/gpu: "1"
+```
+
+入る Pod その後、実行してください。 `ifconfig` 命令では、「<name>」という名前のものが余分に見つかったと報告されています。 `net1` のネットワークカード。しかし、次はどうすればいいのでしょうか？ たとえそれが Network Operator テストファイルはプロジェクトのリポジトリに提供されています。[^5]，しかし、命令もそうですね `sleep inf`。
+
+私の推測では、おそらくそうだろう。 NCCL ネットワークカードなどを指定する必要があるの？後でそれについては。 RDMA Shared Device Plugin 動作は確認できました。この部分をさらに調査し続けるつもりはありませんが、公式に自分の疑問を提出するのも良い選択肢かもしれません。
+
+To clean up stale resources, you can start `kubectl proxy` in one terminal:
+
+```shell
+$ kubectl proxy
+Starting to serve on 127.0.0.1:8001
+```
+
+And in another terminal, run the cleanup script (note `/` needs to be escaped as `~1`):
+
+```bash
+#!/bin/bash
+
+# Check if at least one node name is provided
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 <node-name> [<node-name>...]"
+  exit 1
+fi
+
+# Prepare the JSON patch data
+PATCH_DATA=$(cat <<EOF
+[
+  {"op": "remove", "path": "/status/capacity/nvidia.com~1hostdev"}
+]
+EOF
+)
+
+# Iterate over each node name provided as an argument
+for NODE_NAME in "$@"
+do
+  # Execute the PATCH request
+  curl --header "Content-Type: application/json-patch+json" \
+       --request PATCH \
+       --data "$PATCH_DATA" \
+       http://127.0.0.1:8001/api/v1/nodes/$NODE_NAME/status
+
+  echo "Patch request sent for node $NODE_NAME"
+done
+```
+
+Pass the node name and clean up:
+
+```shell
+chmod +x ./patch_node_gpu.sh
+./patch_node_gpu.sh node1 node2
+```
+
+## 検証 RDMA のインストール
+
+このセクションでは、<based on> に基づいて紹介していきます。 RDMA Shared Device Plugin の方法、どうやって検証を続けるのか。 RDMA のインストール。
+
+### 1. サポートの準備 RDMA のミラーサイト
+
+> [!quote] [イメージがサポートされているかどうかを確認する。 RDMA--機械学習プラットフォーム - 火山エンジン](https://www.volcengine.com/docs/6459/119595)
+
+簡単に適用できるものです。 V100 機種の Dockerfile おそらく、こんな感じでしょう：
+
+```dockerfile
+FROM xxx/envd:py3.12-ubuntu22.04-8978
+USER root
+
+# Install APT packages
+RUN apt-get update && apt-get install -y \
+	infiniband-diags perftest ibverbs-providers libibumad3 \
+	libibverbs1 libnl-3-200 libnl-route-3-200 librdmacm1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# No Python dependencies specified
+```
+
+ここでは、私の基本イメージには、一般的に使用されるデバッグツールキットが含まれています。Python そして CUDA 環境。主に次の方法で。 APT インストールを続けて、そして InfiniBand 関連するライブラリ。
+
+これらのライブラリをインストールした後、もし私たちが申請しないのであれば、 RDMA リソースが起動されます Pod，それで、正常に見えるはずです `ibstat` の内容ですが、書き込みなどの操作を試みると、エラーが発生して実行できません。 InfiniBand または RoCE 機器。
+
+### 2. シングルプレイヤーでの検証方法
+
+まず、申請を開始する必要があります。 RDMA リソースの Pod：
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rdma-test-pod-1
+spec:
+  containers:
+  - image: <image>
+    name: rdma-test-ctr
+    securityContext:
+      capabilities:
+        add: [ "IPC_LOCK" ]
+    resources:
+      limits:
+	    nvidia.com/v100: "4"
+        rdma/rdma_v100: "1"
+      requests:
+	    nvidia.com/v100: "4"
+        rdma/rdma_v100: "1"
+    command:
+    - sh
+    - -c
+    - |
+      sleep infinity
+```
+
+ここでは、通常の GPU リソースについては、モデルに従って名称を変更しました。関連する情報は、以前の記事でご覧いただけます。
+
+コンテナの起動に成功した後、コンテナに入ります。
+
+1. 次のコマンドを入力してください。
+
+```bash
+ib_write_bw -d mlx5_1 &
+```
+
+出力例は次のとおりです。
+
+```shell
+$ ib_write_bw -d mlx5_1 &
+[1] 2457716
+root@xxx-01:~#
+************************************
+* Waiting for client to connect... *
+************************************
+```
+
+2. 同じマシンで、以下のコマンドを入力し続けます。
+
+```plain
+ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+```
+
+出力例は次のとおりです。
+
+```shell
+$ ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+---------------------------------------------------------------------------------------
+ Number of qps   : 1            Transport type : IB
+                    RDMA_Write BW Test
+ Connection type : RC           Using SRQ      : OFF
+ Dual-port       : OFF          Device         : mlx5_1
+ PCIe relax order: ON
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ ibv_wr* API     : ON
+ TX depth        : 128
+ CQ Moderation   : 1
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Mtu             : 4096[B]
+ Link type       : IB
+ Link type       : IB
+ Max inline data : 0[B]
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+ local address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ local address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ remote address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+ remote address: LID 0xXX QPN 0xXXXX PSN 0xXXXXXX RKey 0xXXXXXX VAddr 0xXXXXXXXXXXXX
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+Conflicting CPU frequency values detected: 1000.000000 != 3013.932000. CPU Frequency is not max.
+ 65536      5000             94.72              94.71              0.180640
+---------------------------------------------------------------------------------------
+ 65536      5000             94.72              94.71              0.180640
+---------------------------------------------------------------------------------------
+[1]+  Done                    ib_write_bw -d mlx5_1
+```
+
+について V100 RDMA 機種、帯域幅の値（ <）`BW peak`、`BW average`）接近する必要がある  `100Gb/s`，A100 RDMA 機種は似ていなければならない  `200Gb/s`，要求に合致している場合は、設定に問題はないことを示しています。出力やエラーがない場合は、機種に応じた環境設定のセクションに戻り、設定項目に何かが欠けているかどうかを確認してください。
+
+### 3. 複数のコンピュータで検証する方法
+
+セクション2と同様に、2つずつ別々に申請してください。 Pod，そして、そのうちの1つを記録しておきましょう。 Pod の Kubernetes イントラネット IP，そして、コマンドを実行します。
+
+```bash
+# server cmd
+ib_write_bw -a -F --report_gbits -q 2
+
+# client cmd
+ib_write_bw -a -F --report_gbits -q 2 <server-pod-default-network-IP>
+```
+
+帯域幅の値もほぼ同じです  `100Gb/s`，複数のコンピュータ間の接続に問題はないことを示しています。
+
+### 4. vLLM マルチマシン分散型推論の実践的な応用
+
+最後に、私たちは実際にテストを行いました。 Volcano Job 実行 vLLM マルチマシン分散型推論 DeepSeek R1 Distill Qwen 32B モデル。私たちのモデルは次のように作成されています。 PVC マウントされたもので、ミラーは < を通じてアクセスできます。 Envd 制作。なぜなら、 vLLM 特別に作られたものが設置されるでしょう。 CUDA 12.4，基本イメージは含まなくていいよ。 CUDA。
+
+```python
+# syntax=v1
+
+def build():
+    base(image="ubuntu:22.04",dev=True)
+    install.python(version="3.12")
+    install.apt_packages([
+        "openssh-server", "build-essential", "iputils-ping", "net-tools", "htop",
+        "infiniband-diags", "perftest", "ibverbs-providers", "libibumad3",
+        "libibverbs1", "libnl-3-200", "libnl-route-3-200", "librdmacm1"
+    ])
+    config.pip_index(url = "https://pypi.tuna.tsinghua.edu.cn/simple")
+    install.python_packages(name = ["vllm"])
+    config.jupyter()
+```
+
+その後、私たちは始動しました。 Volcano Job：
+
+```yaml
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: vllm-rdma-test
+  namespace: crater-workspace
+spec:
+  maxRetry: 3
+  minAvailable: 2
+  plugins:
+    pytorch:
+      - --master=master
+      - --worker=worker
+      - --port=23456
+    svc: []
+  policies:
+    - action: RestartJob
+      event: PodEvicted
+  queue: default
+  schedulerName: volcano
+  tasks:
+    - maxRetry: 3
+      minAvailable: 1
+      name: master
+      policies:
+        - action: CompleteJob
+          event: TaskCompleted
+        - action: TerminateJob
+          event: PodFailed
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - command:
+                - sh
+                - -c
+                - |-
+                  ray start --head --port=6667 --disable-usage-stats;
+                  NCCL_DEBUG=TRACE python3 -m vllm.entrypoints.openai.api_server \
+                  --model=/models/DeepSeek-R1-Distill-Qwen-32B \
+                  --max-model-len 32768 \
+                  --tensor-parallel-size 4 \
+                  --pipeline-parallel-size 2 \
+                  --gpu-memory-utilization 0.90 \
+                  --max-num-seqs 128 \
+                  --trust-remote-code \
+                  --disable-custom-all-reduce \
+                  --port 6666 \
+                  --dtype=half;
+              image: xxx/envd-vllm:0.8.3-cu12.4-rdma-v1
+              name: master
+              resources:
+                limits:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+                requests:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                runAsGroup: 0
+                runAsUser: 0
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: crater-cache
+                - mountPath: /models/DeepSeek-R1-Distill-Qwen-32B
+                  name: crater-ro-storage
+                  readOnly: true
+                  subPath: LLM/deepseek/DeepSeek-R1-Distill-Qwen-32B
+              workingDir: /models
+          restartPolicy: Never
+          volumes:
+            - emptyDir:
+                medium: Memory
+              name: crater-cache
+            - name: crater-ro-storage
+              persistentVolumeClaim:
+                claimName: crater-ro-storage
+    - maxRetry: 3
+      minAvailable: 1
+      name: worker
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - command:
+                - sh
+                - -c
+                - |-
+                  ray start --address="$MASTER_ADDR:6667";
+                  sleep infinity;
+              image: xxx/envd-vllm:0.8.3-cu12.4-rdma-v1
+              name: worker
+              resources:
+                limits:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+                requests:
+                  nvidia.com/v100: "4"
+                  rdma/rdma_v100: "1"
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+                runAsGroup: 0
+                runAsUser: 0
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: crater-cache
+                - mountPath: /models/DeepSeek-R1-Distill-Qwen-32B
+                  name: crater-ro-storage
+                  readOnly: true
+                  subPath: LLM/deepseek/DeepSeek-R1-Distill-Qwen-32B
+              workingDir: /models
+          restartPolicy: OnFailure
+          volumes:
+            - emptyDir:
+                medium: Memory
+              name: crater-cache
+            - name: crater-ro-storage
+              persistentVolumeClaim:
+                claimName: crater-ro-storage
+  ttlSecondsAfterFinished: 259200
+```
+
+参考 vLLM 分散型推理の説明[^7]，私たちは始めたのです。 `NCCL_DEBUG=TRACE`，日記では、次のような内容が見られます。 NCCL 使用しました。 IB そしてではなく Socket 接続。
+
+推理の過程、Kubernetes また、マシン間の通信量も検出できなくなっています。これは、私たちのデプロイが成功したことを示しています。
+
+## 問題の記録
+
+### 1. 接続テストでエラーが発生しました。
+
+```bash
+[host1] $ ib_read_bw -q 30
+
+************************************
+* Waiting for client to connect... *
+************************************
+---------------------------------------------------------------------------------------
+                    RDMA_Read BW Test
+ Dual-port       : OFF          Device         : mlx5_0
+ Number of qps   : 30           Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Outstand reads  : 16
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ethernet_read_keys: Couldn't read remote address
+ Unable to read to socket/rdma_cm
+Failed to exchange data between server and clients
+```
+
+```bash
+[host2] $ ib_read_bw -q 30 10.244.46.50
+Couldn't allocate MR
+failed to create mr
+Failed to create MR
+ Couldn't create IB resources
+```
+
+これは、申請のためです RDMA リソースがあっても、与えることはできないよ Pod 設定 Memory の Limit。
+
+### 2. 起動 vLLM タイムアウトエラー `Segmentation fault`
+
+日課から判断すると、IB デバイスは正常に認識されましたが、セグメントエラーが発生しました。
+
+```bash
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 00/02 :    0   1   2   3   4   5   6   7
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 01/02 :    0   1   2   3   4   5   6   7
+[機器名]-master-0:528:528 [0] NCCL INFO Trees [0] 1/4/-1->0->-1 [1] 1/-1/-1->0->4
+    self.device_communicator = device_comm_cls(
+[機器名]-master-0:528:528 [0] NCCL INFO P2P Chunksize set to 131072
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 00/0 : 7[3] -> 0[0] [receive] via NET/IB/0
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 01/0 : 7[3] -> 0[0] [receive] via NET/IB/0
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/IPC
+[機器名]-master-0:528:528 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[1] via P2P/IPC
+[機器名]-master-0:528:5379 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer [機器名]-worker-0.[ホスト名].svc.cluster.local<35396>
+[機器名]-master-0:528:5379 [0] NCCL INFO misc/socket.cc:752 -> 6
+[機器名]-master-0:528:5379 [0] NCCL INFO transport/net_ib.cc:1207 -> 6
+[機器名]-master-0:528:5379 [0] NCCL INFO transport/net.cc:837 -> 6
+[機器名]-master-0:528:528 [0] NCCL INFO transport/net.cc:405 -> 6
+[機器名]-master-0:528:528 [0] NCCL INFO transport.cc:183 -> 6
+                               ^^^^^^^^^^^^^^^^
+[機器名]-master-0:528:528 [0] NCCL INFO init.cc:1263 -> 6
+[機器名]-master-0:528:528 [0] NCCL INFO init.cc:1548 -> 6
+[機器名]-master-0:528:528 [0] NCCL INFO init.cc:1799 -> 6
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/cuda_communicator.py", line 39, in __init__
+[機器名]-master-0:528:5379 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer [機器名]-worker-0.[ホスト名].svc.cluster.local<52144>
+    self.pynccl_comm = PyNcclCommunicator(
+                       ^^^^^^^^^^^^^^^^^^^
+[機器名]-master-0:528:5379 [0] NCCL INFO misc/socket.cc:752 -> 6
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[機器名]-master-0:528:5379 [0] NCCL INFO transport/net_ib.cc:1207 -> 6
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl.py", line 99, in __init__
+    self.comm: ncclComm_t = self.nccl.ncclCommInitRank(
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl_wrapper.py", line 277, in ncclCommInitRank
+    self.NCCL_CHECK(self._funcs["ncclCommInitRank"](ctypes.byref(comm),
+  File "/opt/conda/envs/envd/lib/python3.12/site-packages/vllm/distributed/device_communicators/pynccl_wrapper.py", line 256, in NCCL_CHECK
+    raise RuntimeError(f"NCCL error: {error_str}")
+RuntimeError: NCCL error: unhandled system error (run with NCCL_DEBUG=INFO for details)
+[機器名]-master-0:528:5379 [0] NCCL INFO transport/net.cc:837 -> 6
+[機器名]-master-0:528:528 [0] NCCL INFO init.cc:1837 -> 6
+*** SIGSEGV received at time=1745072123 on cpu 70 ***
+PC: @     0x7ff94e269506  (unknown)  ncclProxyServiceUDS()
+    @     0x7ffa0c242520       3384  (unknown)
+    @ ... and at least 1 more frames
+[2025-04-19 14:15:23,982 E 528 5383] logging.cc:484: *** SIGSEGV received at time=1745072123 on cpu 70 ***
+[2025-04-19 14:15:23,982 E 528 5383] logging.cc:484: PC: @     0x7ff94e269506  (unknown)  ncclProxyServiceUDS()
+[2025-04-19 14:15:23,983 E 528 5383] logging.cc:484:     @     0x7ffa0c242520       3384  (unknown)
+[2025-04-19 14:15:23,983 E 528 5383] logging.cc:484:     @ ... and at least 1 more frames
+Fatal Python error: Segmentation fault
+```
+
+以前にもお話しましたが、<font size="3">ウェブサイトのトップページに</font>、会社名やロゴを表示する必要があることを覚えているでしょうか？ Pod セキュリティコンテキストに追加する。 `IPC_LOCK` えっ？増やさないと、上記の問題が発生するよ。
+
+### 3. A100 モデルが複数のマシンで実行された場合、推論が失敗します
+
+まず、 A100 モデルのシングルプレイヤー運用の検証。もしたまたま使用していたら。 Up ネットワークカードは問題ないようです。
+
+```bash
+$ ib_write_bw -d mlx5_1 &
+[1] 1501
+
+************************************
+* Waiting for client to connect... *
+************************************
+
+
+$ ib_write_bw -d mlx5_1 127.0.0.1 --report_gbits
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+                    RDMA_Write BW Test
+ Dual-port       : OFF          Device         : mlx5_1
+ Number of qps   : 1            Transport type : IB
+ Connection type : RC           Using SRQ      : OFF
+ PCIe relax order: ON
+ ibv_wr* API     : ON
+ TX depth        : 128
+ CQ Moderation   : 1
+ Mtu             : 4096[B]
+ Link type       : IB
+ Max inline data : 0[B]
+ rdma_cm QPs     : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[MB/sec]    BW average[MB/sec]   MsgRate[Mpps]
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+Conflicting CPU frequency values detected: 863.109000 != 2300.000000. CPU Frequency is not max.
+ 65536      5000             183.66             183.61             0.350214
+---------------------------------------------------------------------------------------
+ 65536      5000             183.66             183.61             0.350214
+---------------------------------------------------------------------------------------
+
+$ ib_write_bw -d mlx5_0 &
+[1] 1618
+
+Port number 1 state is Down
+ Couldn't set the link layer
+ Couldn't get context for the device
+
+$ ib_write_bw -d mlx5_0 127.0.0.1 --report_gbits
+ Port number 1 state is Down
+ Couldn't set the link layer
+ Couldn't get context for the device
+
+$ ibstat
+CA 'mlx5_0'
+        CA type: MT4123
+        Port 1:
+                State: Down
+                Physical state: Disabled
+                Rate: 10
+                Base lid: 65535
+                LMC: 0
+                SM lid: 0
+                Link layer: InfiniBand
+CA 'mlx5_1'
+        CA type: MT4123
+        Port 1:
+                State: Active
+                Physical state: LinkUp
+                Rate: 200
+                Base lid: 3
+                LMC: 0
+                SM lid: 1
+                Link layer: InfiniBand
+CA 'mlx5_bond_0'
+        CA type: MT4117
+        Port 1:
+                State: Active
+                Physical state: LinkUp
+                Rate: 10
+                Link layer: Ethernet
+
+$ ib_write_bw -d mlx5_bond_0 &
+IB device mlx5_bond_0 not found
+ Unable to find the Infiniband/RoCE device
+```
+
+でも走れ vLLM その時エラーが発生し、後にこの問題が <en> An error occurred at that time, and later, I found out that this problem was related to <zh> 当时会出现错误，后来发现这个问题与<某个因素>有关。 vLLM V1 それに加えて、 Ray 関連する[^8]，そして IB 問題ないです。私の手元にちょうどそれがあるからです。 vLLM マルチマシン分散型推論のコードはテストに使用されました。実際、それはまだ実行されています。 NCCL Test そういう方がいいのではないでしょうか？そうすれば、外部からの干渉要因を避けることができます。
+
+## まとめ
+
+以上の内容は、現地で記録されたものです。 Kubernetes クラスターアクセス RDMA のプロセス。現時点では、関連文書の不足や、プロセスに関わる問題領域が広範囲にわたることがこの分野の学習を妨げる主な要因です。確かに、かなり確かなコンピュータの基礎知識が必要です。
+
+[^1]: [2 個 RoCE ネットワークカード Bond 集約して、帯域幅を実現する。 X2-クラウドコミュニティ - 华为クラウド](https://bbs.huaweicloud.com/blogs/412088)
+[^2]: [RDG for Accelerated K8s Cluster over NVIDIA DGX A100 Servers and 200Gbps Ethernet Network Fabric](https://docs.nvidia.com/networking/display/public/sol/rdg+for+accelerated+k8s+cluster+over+nvidia+dgx+a100+servers+and+200gbps+ethernet+network+fabric)
+[^3]: [Enhance documentaitons · Issue #54 · Mellanox/k8s-rdma-shared-dev-plugin](https://github.com/Mellanox/k8s-rdma-shared-dev-plugin/issues/54)
+[^4]: [Multus-CNI そして whereabouts の簡単な使用方法 - 剣轩のコラム - TNBLOG](https://www.tnblog.net/aojiancc2/article/details/7929)
+[^5]: [hostdevice-network-pod1.yml](https://github.com/Mellanox/network-operator/tree/master/example)
+[^6]: [理想と現実  - Infiniband イーサネットとの選択肢   -  雪玉](https://xueqiu.com/2448317325/292453176?md5__1038=eqAxgDyDuD0jQGXBDrDcQ8FKiIwx8iD)
+[^7]: [Distributed Inference and Serving](https://docs.vllm.ai/en/stable/serving/distributed_serving.html)
+[^8]: [[Bug]: 0.8.0(V1) Ray cannot find model pyarrow and pandas](https://github.com/vllm-project/vllm/issues/15100)

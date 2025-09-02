@@ -1,0 +1,32 @@
+---
+title: Users and accounts
+description: As the number of users increases, we may refine the details of the 
+  quotas.
+---
+
+
+
+During the internal testing phase, we haven't yet enabled the full quota capacity for users and accounts. Currently, there's no limit on the number of submissions per user, and everything is proceeding as usual. FIFO You just need to queue up according to the rules, so you don't need to pay attention to this section.
+
+In the future, as the number of users increases, we may refine the details of the quota.
+
+<Mermaid
+  chart="
+flowchart TD;
+    subgraph Users interact with the platform;
+        User -->|Personal identity verification | Platform;
+        User --> Private storage space;
+        Private storage space -->|Support sharing | Other users;
+    end;
+    subgraph The relationship between the user and the account;
+        User -->|But it belongs to | Account;
+        User -->|Join by default | Public queue account;
+        Account -->|Included | User;
+        Public queue account -->|The lowest priority | High-quality account;
+        High-quality account -->|Establish it when there is a high-quality optimization requirement | User;
+        High-quality account -->|Free up space | Other high-quality accounts;
+        Account -->|Set quota limits | Account storage space;
+        Account storage space -->|Further restrictions | User quota;
+    end;
+"
+/>

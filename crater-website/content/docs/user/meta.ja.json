@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "---作業とサービス---",
+    "quick-start",
+    "---ミラーとデータ---",
+    "image",
+    "...file",
+    "---もっと---",
+    "toolbox",
+    "problems"
+  ],
+  "title": "ユーザーガイド",
+  "root": true
+}

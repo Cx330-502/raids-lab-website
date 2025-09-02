@@ -1,0 +1,50 @@
+---
+title: Mirror proxy
+description: Documentation for Harbor Proxy
+---
+
+
+
+<Callout>
+
+Our proxy server is not stable. We recommend that you download the image yourself and upload it manually to the image repository.
+For more details, please refer to [Manual upload](./upload.md) One section.
+
+</Callout>
+
+## Why do we need a mirror repository agent?
+
+#### The connection is stable
+
+For some reasons, it's not possible to directly and stably access some mirror repositories on foreign websites in China (such as <). gcr.io、docker.io etc., laboratory Harbor An agent has been configured, so users can use it to Harbor Use the agent to retrieve the mirror image from the foreign network
+
+#### Avoid being banned
+
+Laboratories may frequently use certain images, but if users pull them too often, they might be banned by some repositories (such as nvcr.io），Therefore, caching to the local device can avoid this problem
+
+#### Accelerate the pull request
+
+For the foreign website mirror, you can access it through Harbor First, download it locally for caching. When users use it, they can retrieve the image faster through the intranet of the laboratory
+
+## A repository that provides mirror proxies
+
+There are several types of warehouses currently offering proxy services. We recommend that you use proxies to retrieve images as much as possible. If you don't have a proxy for the required image warehouse, please contact us.@Huang Shiyi, please add new agent warehouses in time:
+
+| Mirror repository          | Warehouse address                  |
+| ----------------- | ------------------------- |
+| nvcr.io           | https://nvcr.io           |
+| docker.elastic.co | https://docker.elastic.co |
+| registry.k8s.io   | https://registry.k8s.io   |
+| ghcr.io           | https://ghcr.io           |
+| k8s.gcr.io        | https://k8s.gcr.io        |
+| gcr.io            | https://gcr.io            |
+| quay.io           | https://quay.io           |
+| docker.io         | https://hub.docker.com    |
+
+## How to use it
+
+When using it, just do it directly on the original image. URL Add the following before:`crater-harbor.act.buaa.edu.cn`That's it. For example:
+
+Original URL：`docker.io/library/ubuntu:latest`
+
+After adding the agent:`crater-harbor.act.buaa.edu.cn/docker.io/library/ubuntu:latest`

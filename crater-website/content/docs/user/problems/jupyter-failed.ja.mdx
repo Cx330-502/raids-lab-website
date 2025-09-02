@@ -1,0 +1,25 @@
+---
+title: Jupyter Labの起動に失敗しました。
+description: Documentation for Jupyter Failed
+---
+
+
+
+<Callout title="TL;DR">
+  おそらく、以前に設定したことがあるためですね Jupyter，ユーザーフォルダの下にあるものを削除する。 `.jupyter` フォルダで十分です。
+</Callout>
+
+## 1. そのため、 Jupyter Pem ファイルのハードコーディングによる起動失敗
+
+2024 年 12 月 25 日次フィードバック。ユーザーの起動ログは以下の通りです。
+
+![pem](./img/pem.webp)
+
+インタラクティブな課題を開始する際にエラーが発生しました。原因は見つからなかったためです。 `/home/LAB/{username}/mycert.pem`，これは、ユーザーが<font>Facebook</font>で行った操作を私たちが同期したためです。 Slurm 旧クラスターのファイル。ユーザーは以前にそれらを使用していた。 Slurm クラスターの Home 目次はこちらです `/home/LAB/{username}`，現在はより標準的になっています `/home/{username}`。
+
+同時に、ユーザーは以前に <en> At the same time, the user previously Slurm クラスターの設定はすでにされている。 Jupyter の TLS 接続するので、 `/home/{username}/.jupyter` フォルダの下にある Jupyter 設定ファイルでは、ハードコーディングされています。 pem 証明書のパス。
+
+そのため、2つの解決策があります。
+
+1. 削除 `/home/{username}/.jupyter` フォルダー
+2. 修正 `jupyter_notebook_config.py` 文書の第 161 よし、パスを変更してください。 `$HOME/mycert.pem`

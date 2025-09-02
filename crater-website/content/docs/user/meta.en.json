@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "---Homework and Services---",
+    "quick-start",
+    "---Mirroring and Data---",
+    "image",
+    "...file",
+    "---More---",
+    "toolbox",
+    "problems"
+  ],
+  "title": "User Guide",
+  "root": true
+}

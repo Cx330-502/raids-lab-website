@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "---Installation and Deployment---",
+    "quick-start",
+    "deployment",
+    "---Advanced Configuration---",
+    "chart",
+    "more",
+    "---Other---",
+    "learning"
+  ],
+  "title": "Administrator's Guide",
+  "root": true
+}

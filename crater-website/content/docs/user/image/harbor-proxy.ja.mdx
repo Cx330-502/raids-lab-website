@@ -1,0 +1,50 @@
+---
+title: ミラー代理
+description: Documentation for Harbor Proxy
+---
+
+
+
+<Callout>
+
+私たちのプロキシサーバーは安定していないので、自分でミラーをダウンロードし、ミラーリポジトリに手動でアップロードすることをお勧めします。
+詳細はこちらをご覧ください。 [手動でアップロードする](./upload.md) セクション1。
+
+</Callout>
+
+## なぜミラーリポジトリエージェントが必要なのか？
+
+#### 接続が安定している
+
+何らかの理由により、中国国内から外部ネットワークのミラーリポジトリ（例えば、<a href="https://hub.docker.com/repositories/library/docker/docker-ce">Docker Hub</a>）に直接安定したアクセスができない場合があります。 gcr.io、docker.io など）、実験室 Harbor プロキシが設定されているため、ユーザーはそれを利用することができます。 Harbor エージェントを使って外部ネットワークのミラーイメージを取得する。
+
+#### バンされるのを避ける
+
+ラボでは特定のイメージを頻繁に使用することがありますが、ユーザーが頻繁にプルすると、一部のリポジトリでブロックされる可能性があります（例えば、 nvcr.io），そのため、ローカルにキャッシュしておけば、この問題を回避することができます。
+
+#### 加速プル
+
+外部ネットワークのミラーサイトについては、<を通じてアクセスしてください。 Harbor まずはローカルにダウンロードしてキャッシュに保存し、ユーザーが利用する際には実験室のネットワークを経由してイメージをダウンロードする方が速いでしょう。
+
+## ミラー代理を提供するリポジトリ
+
+現在、代理店が提供するウェアハウスは以下のとおりです。代理店を通じてミラーイメージを取得することをお勧めします。必要なミラーイメージウェアハウスの代理店がない場合は、お問い合わせください。@黄世一、適切なタイミングで新しい代理倉庫を増設する。
+
+| ミラーリポジトリ          | 倉庫の住所                  |
+| ----------------- | ------------------------- |
+| nvcr.io           | https://nvcr.io           |
+| docker.elastic.co | https://docker.elastic.co |
+| registry.k8s.io   | https://registry.k8s.io   |
+| ghcr.io           | https://ghcr.io           |
+| k8s.gcr.io        | https://k8s.gcr.io        |
+| gcr.io            | https://gcr.io            |
+| quay.io           | https://quay.io           |
+| docker.io         | https://hub.docker.com    |
+
+## 使用方法
+
+使用する場合は、元のミラーイメージで直接操作してください。 URL 先に追加して：`crater-harbor.act.buaa.edu.cn`それでは、例えば：
+
+オリジナル URL：`docker.io/library/ubuntu:latest`
+
+エージェントを追加した後：`crater-harbor.act.buaa.edu.cn/docker.io/library/ubuntu:latest`

@@ -1,0 +1,50 @@
+---
+title: Mirror saving
+description: You can directly save the user's current changes as an image, which
+  will make it more convenient to use next time.
+---
+
+
+
+# Mirror saving
+
+When the user is on Jupyter A new device has been installed in the environment. Python After packaging, if you stop the operation, these files will be deleted by default. Python The package will be lost.
+
+For this reason, we provide a mirror saving function, which allows users to directly save their current changes as a mirror, making it more convenient to use next time.
+
+<Callout>
+
+Due to the fact that the images of deep learning are usually very large, and factors such as the network may cause interference during the process, it's difficult to guarantee the success rate of image preservation. We still recommend that you try to do it as much as possible through Dockerfile Or create a mirror using low-code methods. We might impose the following restrictions:
+
+1. The total size of the images that users can upload
+2. The number of mirrors that users can save (in order to save new ones, they must delete the old ones)
+
+Summary: We highly recommend that you use Dockerfile Or create a mirror image using the low-code method!
+
+</Callout>
+
+## Start Jupyter Example
+
+Please refer to [Interactive assignments](../quick-start/interactive.md) Start Jupyter Lab。
+
+After that, you might perform some operations in this container, such as installing an application. Pip Bag:
+
+```shell
+# Use aliyun Of Pip Source
+sudo pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+
+# Install any package you want
+sudo pip install jieba
+```
+
+## Save the changes made in the image
+
+In Jupyter An interactive page, find it Crater The floating ball of the icon:
+
+![alt text](./img/floatball.webp)
+
+Click to save the mirror image and confirm it.
+
+Crater The platform will redirect you to the image creation page, where you can check the specific progress of the image packaging task. After successful completion, you will be able to see the description of the image when selecting it. `Snapshot of XXXX` A mirror image of it.
+
+![alt text](./img/snapshot.webp)

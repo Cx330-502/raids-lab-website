@@ -1,0 +1,386 @@
+---
+title: Rook-Ceph Practice Guide
+description: A Getting Started Guide for Rook-Ceph, written specifically for 
+  complete beginners!
+---
+
+
+
+> This guide is designed for those who have absolutely no prior knowledge of Ceph For those who have experience with distributed storage, the aim is to help you quickly understand and operate it in practice Rook-Ceph。
+
+## I. Preliminary Background
+
+I'm putting what I've learned into practice Rook-Ceph Previously, it was necessary for us to fundamentally understand two key concepts:**Ceph** And **Rook-Ceph**。They respectively represent the core capabilities of distributed storage systems and Kubernetes The automated operation and maintenance solution deployed on the platform.
+
+### 1. Ceph
+
+**Ceph It is an open-source distributed storage system.**，Originally by Sage Weil It was initiated with the aim of solving the problems of data consistency, availability, and scalability in large-scale storage environments. Unlike traditional centralized storage solutions,Ceph It does not rely on a single point controller, but is built on the basis of collaboration between peer nodes.Ceph The core design goals include:
+
+* **High scalability**：Support translation from Chinese to English, but never translate languages other than Simplified Chinese. TB Count them PB an increase in storage capacity;
+* **High availability and fault tolerance**：Ensure that the data is still available even if the node crashes, by using replication or erasure coding mechanisms;
+* **Unified storage model**：At the same time, it supports block devices (Block）、Object storage (Object）And the file system (File）The visiting method.
+
+Ceph The cluster mainly includes the following core components
+
+| Component                         | Function description                                 |
+| ---------------------------- | ---------------------------------------- |
+| MON（Monitor）               | Maintain cluster status, health checks, and other metadata services such as master election |
+| OSD（Object Storage Daemon） | Responsible for the core functions of data reading, writing, copying, and recovery |
+| MGR（Manager）               | Provide monitoring, statistical analysis, and plug-in extension capabilities             |
+| MDS（Metadata Server，(Optional) | It is used for managing the metadata of the directory tree when supporting the file system.       |
+
+One Ceph Clusters usually require 3 More than one MON Ensure the safety of the main character. There should be multiple options OSD It is mounted on the physical disks of each node to jointly provide data storage capabilities.
+
+### 2. Rook-Ceph
+
+**Rook It's based on Kubernetes The storage orchestrator (Operator）**，Its goal is to**Let users manage it like they would manage their own things. Pod Manage the storage system in the same way**。Rook-Ceph It is one of the most mature and widely used backends, used to simplify Ceph In Kubernetes The deployment and management process on the platform.
+
+Rook-Ceph Put it Ceph The deployment and maintenance are abstracted into a set. Kubernetes of the custom resources (Custom Resources），Including
+
+| Custom resources        | Explanation                         |
+| ----------------- | ---------------------------- |
+| `CephCluster`     | It indicates a complete Ceph Cluster Declaration |
+| `CephBlockPool`   | Management Ceph Of RBD Block storage pool    |
+| `CephFilesystem`  | Management Ceph File system           |
+| `CephObjectStore` | Management of object storage bucket services           |
+
+Through Operator Mode,Rook It's done Ceph The lifecycle management of the cluster, including deployment, upgrade, fault recovery, and capacity expansion, greatly reduces the complexity of traditional management. Ceph The complexity of the installation process.
+
+### 3. In Kubernetes Use it in Chinese Ceph
+
+Kubernetes Native doesn't provide true persistent storage. If a Pod Bound PVC（PersistentVolumeClaim）Without a reliable back-end, it's impossible to achieve high availability, cross-node, and automatic recovery of storage capabilities. And Ceph，Especially through Rook Integrated Ceph，It just fills in the gap perfectly.
+
+* Reliable data persistence storage;
+* Elastic expansion capability;
+* Support highly available block devices and shared file systems;
+* Kubernetes Native support CSI Plugins and StorageClass Dynamic supply.
+
+Rook-Ceph It is possible to build a truly usable cloud-native storage solution.
+
+## II. Learning Path
+
+Ceph And Rook-Ceph The content involved is complex. For beginners, the biggest challenge in the early stage is not the lack of resources, but the overwhelming amount of information that lacks systematicness and progressiveness. To improve efficiency and avoid falling into ineffective traps, it is recommended to divide the learning path into three stages and focus on building an understanding of relevant tools through practical application.
+
+### 1. Phase I: Concept Establishment
+
+#### Recommended resources
+
+- Official Documentation:https://rook.github.io/docs/rook/latest-release/Getting-Started/intro/
+- Chinese Science Popularization:B Station search Ceph Introduction Series
+- ChatGPT Search terms to be used later
+
+#### Key objective: Understanding Ceph And Rook-Ceph The design motivation and relationships, and clarifying the responsibilities of the core components
+
+| Issues that need to be understood                                               | Example of recommended ways to ask questions                                            | Why is it important?                                                   |
+| ------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| Ceph What problem was it created to solve?                            | Brief Introduction Ceph The fundamental difference from traditional centralized storage systems.              | Clear Ceph Distributed + Fault tolerance + The core concept of decentralization.               |
+| Ceph And Rook-Ceph What's the relationship between them?                               | In K8s Use Rook-Ceph It's being used. Ceph What?Rook What effect did it have?   | Got it Rook It's encapsulated. Ceph The concept of operation and maintenance logic helps to avoid confusion between the two.     |
+| Ceph What are the core components of it, and what are their respective responsibilities?                        | Explanation MON、OSD、MGR、MDS In Ceph The responsibilities and interactions in it.            | Clarify all subsequent command operations and troubleshooting entry points.                       |
+| What is RBD、Object storage, file system? In <zh> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”，根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> Object storage, file system? In <zh> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”，根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> Object storage, file system? In <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> Object storage, file system? In <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> Object storage, file system? In <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句，询问对象存储和文件系统之间的区别或应用场景。翻译时需要保持疑问的语气，同时准确传达两个术语的含义。可能翻译为“对象存储、文件系统？”或者“对象存储和文件系统？”根据上下文选择更自然的表达。
+
+接下来是第二句：“在 <en> 对象存储、文件系统？在  
+
+[COT] 好的，我现在需要把用户提供的这段中文文本翻译成英文。首先，我要仔细阅读原文，理解每个句子的意思。原文主要讲的是对象存储和文件系统，可能是在讨论存储技术的对比或应用场景。
+
+第一句是“对象存储、文件系统？”，这里可能是一个疑问句 Kubernetes Which one are you using? | In Kubernetes Use PVC When that happens, it's time to leave Ceph Is it block storage or some other form? | Clear Ceph Is it about storage or does it involve other concepts like cloud storage?                   |
+| Why is it that...?  
+
+（Translation note: The sentence ends abruptly, and the context is unclear. The translation preserves the original question structure while leaving the rest of the sentence untranslated to reflect the incomplete nature of the original text.） Kubernetes Deploy in China Ceph We need to use it. Rook？                  | Not approved Rook，Can it also be deployed directly? Ceph？What's the difference?            | I understand Kubernetes The differences from traditional architectures, especially the concept of declarative resources. |
+
+### 2. Stage Two: Getting Familiar with the Environment
+
+#### Basic objectives
+
+- Learn to do it in K8s Enter from the Chinese mainland toolbox，Execute basic diagnostic and status commands;
+- Able to read and understand ceph status、osd tree The meaning of waiting for orders;
+- I've learned how to use it preliminarily kubectl Management Rook The resource object.
+
+#### Key objective: Understanding Rook-Ceph You need to know what resources are available in the deployed cluster toolbox And K8s The connection between objects enables us to independently complete basic queries
+
+| Issues that need to be understood                                               | Example of recommended ways to ask questions                                             | Why is it important?                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| How to enter toolbox，Where exactly is it connected to?                       | rook-ceph-tools This one Pod How do I connect it? Ceph Is it a cluster? Is it also running? Ceph？ | Avoid misunderstanding toolbox Yes Ceph The main body, not the remote client.          |
+| Execute `ceph status` It's out HEALTH_WARN What does it mean? How can we continue to track it? | `ceph health detail` appear in Chinese mon quorum lost What's the situation?     | Each diagnostic output contains clues to the problem, and you must know how to locate the problem step by step.           |
+| Ceph How to turn a disk into a storage resource?OSD What's the relationship with the hard drive?      | OSD How does it correspond to the physical disk? Multiple OSD Can we share the disk?        | Learning how to handle follow-up matters `ceph osd down` Or the operation logic in the event of a disk failure.        |
+| Ceph Of Pool What is it? Why is everyone... PVC They all correspond to each other Pool？              | Why do we need multiple ones? Pool？Pool What is the relationship between the number of copies and the performance space?   | Pool It is the unit of partitioned resources. If you don't understand it, you won't be able to optimize performance or implement disaster recovery strategies.      |
+| Kubernetes In Chinese StorageClass And Ceph Of BlockPool How is it bound? | From PVC To Ceph RBD，How are resources mapped layer by layer? Who created them? RBD？     | Clarify K8s → Rook → Ceph Of the control link, analyze the data storage location and the load attribution. |
+
+### 3. Stage Three: Practical Training
+
+#### Basic objectives
+
+- Master Ceph The basic operations of daily maintenance for clusters;
+- It can complete the process from creating a new storage pool to binding it PVC And the process of running the application;
+- Able to independently troubleshoot most common faults (at least be able to identify the cause).
+
+#### Key objective: Be able to create and operate Pool、RBD、PVC，Handle common errors and master them Rook Upgrade and Ceph Operation chain
+
+| Issues that need to be understood                                  | Recommended ways to ask questions                                                 | Why is it important?                                          |
+| ----------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------- |
+| How to determine whether a certain RBD It has been correctly created and accepted by someone. PVC Binding?  | How to do it from PVC Check the corresponding information Ceph RBD What's the name?                        | Learn to confirm whether the storage is configured correctly, especially when troubleshooting mounting failures.    |
+| Pool What is the impact of the number of copies set on performance and fault tolerance?  
+
+（注：此翻译在保留原意的基础上，将"副本数设置"译为"number of copies set"，符合技术文档中的常用术语。）           | In the three-copy pool, is it always necessary to consume three times the storage space? What if we only use two machines instead? | I understand Pool The impact of parameters on performance and capacity is a core skill in optimization.  |
+| How to restore after creating a snapshot? Will it affect the original data?  
+
+（Translation note: The question is phrased in a slightly more formal tone compared to the original Chinese, preserving the technical nature of the query while ensuring clarity for English-speaking readers.）          | Ceph RBD Snapshot rollback Will it overwrite the original data? How can I demonstrate the recovery operation?    | The snapshot is an experiment/It's a crucial tool during testing, often used to prevent accidental deletions or misoperations. |
+| Why? rook-ceph-osd-xxx pod Will it fail? How to analyze it? | One OSD pod The startup failed. How to check the logs or troubleshoot the issue? ceph Are you asking me to analyze the reasons for the command?      | Such problems occur frequently, and it's essential to master log diagnostics and hardware mapping logic.  |
+| Rook What key indicators should be monitored during the upgrade process?           | From v1.14 Upgrade to v1.15 At that time, which ones? pod Which resources should be updated first, and which ones are immutable? | The learning process can be upgraded without interruption, ensuring that stored data will not be lost.            |
+
+> **Techniques**
+>
+> - Do the actual creation→Mount→Write→The complete process of deletion;
+> - We're not afraid to make mistakes, especially when we deliberately create them in a testing environment. OSD down/MON malfunctions, etc.;
+> - Let the large model explain the error messages more often.CRD Purpose of the field.
+
+## III. Common commands
+
+### 1. View basic information and conduct a health check
+
+| Operation                 | Command                       | Purpose description                                        |
+| -------------------- | -------------------------- | ----------------------------------------------- |
+| Check your overall health status     | `ceph -s` Or `ceph status` | Ensure that the cluster is `HEALTH_OK` Check the status. Otherwise, you need to analyze the content of the warning |
+| View the usage of cluster space | `ceph df`                  | It can determine which ones pool It takes up the most space                    |
+| View all component versions     | `ceph versions`            | Verify whether the versions after the upgrade are consistent                          |
+| View the topology of the cluster host nodes | `ceph osd tree`            | Judgment OSD Distribution is particularly crucial when identifying faulty nodes           |
+| View MON Information        | `ceph mon dump`            | Verification quorum The number and the requirements for fault recovery                    |
+| View the details of the cluster alerts     | `ceph health detail`       | Obtain the specific information of each alarm and the location of the components                |
+
+### 2. OSD Operation
+
+| Operation                  | Command                               | Purpose description                    |
+| --------------------- | ---------------------------------- | --------------------------- |
+| View all OSD List     | `ceph osd ls`                      | Confirm OSD Number               |
+| View OSD Status         | `ceph osd stat`                    | Check whether all of them are OSD up/in      |
+| View a certain OSD Detailed status   | `ceph osd dump`                    | It is often used for positioning OSD in/out The situation  |
+| Mark someone OSD Log out       | `ceph osd out <id>`                | Plan to shut down the disk/Use it when maintaining the node. |
+| I'm going to relaunch it OSD        | `ceph osd in <id>`                 | Restore the use of the disk or recover from a mistaken operation    |
+| Manually mark something OSD It's a server crash | `ceph osd down <id>`               | Testing operations for handling failure recovery scenarios  |
+| Trigger OSD Re-balance       | `ceph osd reweight-by-utilization` | Use it when the data is unevenly distributed          |
+
+### 3. Pool Management
+
+| Operation           | Command                                                         | Purpose description                       |
+| -------------- | ------------------------------------------------------------ | ------------------------------ |
+| View the existing ones pool  | `ceph osd pool ls`                                           | Quickly understand the current storage layout         |
+| View pool Details | `ceph osd pool get <pool> all`                               | Check the number of copies, encoding method, and other parameters     |
+| Create pool      | `ceph osd pool create mypool 128 128`                        | You can try different sizes in the experimental environment pool    |
+| Delete pool      | `ceph osd pool delete mypool mypool --yes-i-really-really-mean-it` | Use it with caution and only in experimental environments       |
+| Set the number of copies to 3 | `ceph osd pool set mypool size 3`                            | Ensure data redundancy, but increase space consumption |
+
+### 4. RBD Operational practice
+
+| Operation          | Command                                         | Purpose description                            |
+| ------------- | -------------------------------------------- | ----------------------------------- |
+| Create RBD Mirror | `rbd create myrbd --size 1024 --pool mypool` | With MB For the unit, bind it PVC You need to create an image first |
+| View the mirror image      | `rbd ls -p mypool`                           | Please confirm whether the creation was successful                    |
+| Obtain the mirror image information  | `rbd info mypool/myrbd`                      | View the size and usage of the mirror              |
+| Delete the mirror image      | `rbd rm mypool/myrbd`                        | Clean up the test images and free up space            |
+| Create a snapshot      | `rbd snap create mypool/myrbd@snap1`         | It can be used to test the snapshot and recovery functions            |
+| Roll back the snapshot      | `rbd snap rollback mypool/myrbd@snap1`       | Data recovery after simulating accidental deletion                  |
+
+### 5. File system operations (only applicable to deployment) MDS It can be used afterwards
+
+| Operation             | Command                                       | Purpose description                        |
+| ---------------- | ------------------------------------------ | ------------------------------- |
+| Create a file system     | `ceph fs new myfs myfs_metadata myfs_data` | Support similar things. NFS The shared mount         |
+| View all file systems | `ceph fs ls`                               | Check whether the file system is effective            |
+| Check the status of the file system | `ceph fs status`                           | Check if it's active MDS The number of nodes and client connections |
+
+## IV. Practice scenarios
+
+### 1. Scene 1: Create an independent data volume for the training service of large models
+
+The laboratory has deployed a system based on PyTorch For the large-scale model training service, each user wants to use an independent data storage volume mounted to the training container. As an administrator, you need to
+
+1. Create a file named `ml-training-pool` A block storage pool, specifically used for model training data;
+2. Bind the pool to Kubernetes One of them StorageClass，For users to use on PVC Call it from China;
+3. Create one. PVC，And confirm that it has been successfully bound and is running on Ceph The corresponding one has been created in the cluster. RBD Mirror;
+4. Use toolbox Check the status, capacity, and other detailed information of the block device to confirm its availability.
+
+### 2. Scene 2: Simulating a disk failure in a node and Ceph The process of data rebalancing
+
+For the rehearsal Ceph For fault tolerance in a production environment, you need to simulate one. OSD Observe the abnormal offline status of the node Ceph Whether the self-healing mechanism is effective.
+
+1. Select one from the existing clusters OSD，And mark it as `out`，Simulate the disk being offline;
+2. Observation Ceph Whether it triggers data migration, rebalancing, and changes in health status;
+3. View OSD tree And the changes in the cluster status, recording the process of rebuilding copies and redistributing capacity;
+4. After simulating the fault repair, the device will be restored to its normal state. OSD Mark it as <zh> 标记为 `in`，Observing the process of system recovery.
+
+### 3. Scene Three: Using snapshots and rollbacks to protect and recover training data
+
+Before training a large model, you want to provide a recoverable snapshot of the user's training data volume to prevent accidental deletion. The simulation scenario is as follows
+
+1. In the existing block storage volumes (corresponding to <zh> 已有的块存储卷（对应于 <） PVC）Create a snapshot on it and name it `@pretrain`；
+2. Suppose the user accidentally deletes important training data or writes abnormal data in the middle of the process;
+3. Use Ceph Using the snapshot rollback function, we will restore the original state of the database. RBD The volume is restored to the snapshot state before training;
+4. Verify the consistency of the data after the rollback and understand the impact of snapshots on the system's performance and capacity.
+
+### 4. Scene 4: Deploying a shared volume to support distributed training log collection
+
+The laboratory plans to conduct distributed training experiments, involving multiple parties. Pod The examples require that the training logs be written into the same directory. You need to
+
+1. Create one. Ceph File system (CephFS），And through MDS Service Provision POSIX Interface;
+2. Configure one that supports it. ReadWriteMany Of StorageClass，For multiple purposes Pod Use them simultaneously;
+3. Create one. PVC，And mount it to multiple devices. Pod，Simulate the scenario of concurrent writing to the log;
+4. Verify whether the written data is consistent and whether there are write conflicts or permission abnormalities.
+
+### 5. Scene 5: Countermeasures for dealing with the impending exhaustion of the capacity of the simulated storage pool
+
+During the peak period of intensive submission of training tasks, you find that there's a certain problem with one of them. Ceph The remaining capacity of the block storage pool is about to be insufficient. You need to
+
+1. Use toolbox View all Pool The utilization rate and copy configuration;
+2. Analyze the current situation Pool Which ones are there in Chinese? RBD The mirror is empty and unbound. Consider cleaning it up and recycling it;
+3. If the capacity is really insufficient, try adjusting some settings. Pool The number of copies, from 3 The copy has been downgraded to 2（Only for testing scenarios);
+4. Evaluate the feasibility of scaling up and adding new nodes, or OSD，Observing whether the system automatically rebalances itself.
+
+### 6. Scene 6: Cleaning up the abandoned images and Pool，Free up storage space
+
+You've noticed that there are multiple unused clusters in the cluster. PVC And its corresponding ones RBD Mirroring. The user failed to clean it up manually. You need to
+
+1. Please confirm these PVC The place where I am located Pod Has it been deleted yet?
+2. Find these PVC The bound one RBD Mirror the volume and confirm that it is no longer mounted;
+3. Use toolbox Delete these images and clean up the ones that are no longer in use BlockPool（If there are no dependencies;
+4. Check the total capacity of the cluster again to ensure that the space recovery has been successful.

@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "---インストールとデプロイメント---",
+    "quick-start",
+    "deployment",
+    "---高度な設定---",
+    "chart",
+    "more",
+    "その他",
+    "learning"
+  ],
+  "title": "管理者ガイド",
+  "root": true
+}

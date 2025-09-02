@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "---Overview---",
+    "index",
+    "---User Guide---",
+    "user",
+    "---Administrator's Guide---",
+    "admin"
+  ],
+  "title": "Crater Documentation",
+  "root": true
+}

@@ -1,0 +1,75 @@
+---
+title: Guidelines for Migrating Environments from a Slurm Cluster
+description: Reuse an existing Conda environment or rebuild a Python environment
+---
+
+
+
+## Overview
+
+During the process of upgrading or migrating a computing cluster, environment migration is a crucial step. This article will guide you on how to migrate your existing environment. Slurm Migrating the cluster environment to a new computing platform. We will focus on introducing two main methods: directly reusing the existing one and migrating the cluster to a new platform. Conda Environment and reconstruction based on the existing environment Python Environment.
+
+## 1. Reuse the existing one. Conda Environment
+
+<Callout title="Warning" type="warn">
+Although we can directly reuse the existing ones, Conda environment, but we suggest you carefully consider the following factors:
+
+- **Performance impact**：In Docker Reinstall it in the container Python The environment usually offers better execution efficiency
+- **Compatibility issues**：Directly reusing the environment may lead to path-dependence issues
+- **Environmental cleanliness**：The current environment may contain dependency packages that are no longer in use.
+
+</Callout>
+
+1. **Path adjustment**：
+   Modify the mount path and change it to <zh> 修改挂载路径，将其改为 `/home/{username}` Replace it with `/home/LAB/{username}`，Align to the left Slurm Clustering, to solve the problem of hardcoded paths. If you don't need to reuse the environment, you can skip this step.
+
+   ![mount](./img/mount.webp)
+
+2. **Environmental activation**：
+   Execute a command similar to the following to activate the existing environment:
+
+   ```bash
+   export USERNAME=liyilong
+   export PATH=/home/LAB/${USERNAME}/miniconda3/bin:${PATH}
+   source /home/LAB/${USERNAME}/miniconda3/etc/profile.d/conda.sh
+   export PATH=$CONDA_DIR/bin:${PATH}
+   ```
+
+3. **Verification environment**：
+   Use the following command to verify whether the environment has been successfully activated:
+
+   ```bash
+   conda activate
+   ```
+
+## 2. Reconstruct based on the existing environment Python Environment
+
+<Callout title="Advantages" type="info">
+
+- **The environment is pure and clean**：You can remove the dependencies that are no longer in use
+- **Performance optimization**：The new installation usually offers better performance
+- **Maintainability**：A clear list of dependencies makes it easier to maintain the system in the future
+
+</Callout>
+
+1. **Generate Requirements Document**：
+   Use pipreqs Wait for the scanning of the project directory to generate an accurate list of dependencies:
+
+   ```bash
+   pip install pipreqs
+   pipreqs /path/to/project --encoding=utf8 --force
+   ```
+
+2. **Optimize the dependency list**：
+
+   - Manually check the generated content. requirements.txt Document
+   - Remove the dependencies that are no longer in use
+   - Fix the version number of the key dependencies
+
+3. **Create a new environment**：Please refer to the section on mirror creation. You can create a new environment in multiple ways.
+
+## Conclusion
+
+We recommend prioritizing the second method (rebuilding the environment), although it requires more initial work, it can lead to better long-term maintainability and performance. If time is pressing, the first method (reusing the environment) can be used as a temporary solution, but it is recommended to still proceed with environment reconstruction in the future.
+
+> Note: When performing an environment migration, it is essential to make backups and document all operational steps so that you can quickly roll back in case of any issues.
