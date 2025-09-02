@@ -3,7 +3,7 @@
 export const supportedLocales = {
   en: 'English',
   zh: '简体中文',
-  jp: '日本語'
+  ja: '日本語'
 } as const;
 
 export type Locale = keyof typeof supportedLocales;
