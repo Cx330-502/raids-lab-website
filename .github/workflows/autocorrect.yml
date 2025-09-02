@@ -51,6 +51,7 @@ jobs:
       #     commit_user_email: 41898282+github-actions[bot]@users.noreply.github.com
       #     commit_author: GitHub Actions <41898282+github-actions[bot]@users.noreply.github.com>
 
+      # --- Forked PR 的处理逻辑 (最终可靠版) ---
       - name: Get changed files in website dirs (for forked PRs)
         #if: github.event.pull_request.head.repo.full_name != github.repository
         id: changed-files
@@ -63,16 +64,28 @@ jobs:
             echo "files_exist=false" >> $GITHUB_OUTPUT
           fi
           
-      - name: Lint and Report with Reviewdog via Docker (for forked PRs)
+      # 步骤 1: 创建一个包含我们完整命令的 shell 脚本
+      - name: Create Lint and Report Script
         if: steps.changed-files.outputs.files_exist == 'true'
+        run: |
+          cat << 'EOF' > ./lint_and_report.sh
+          #!/bin/sh
+          set -e
+          
+          echo "--- Running AutoCorrect and piping to Reviewdog ---"
+          autocorrect --lint --format rdjson ${{ steps.changed-files.outputs.files }} | reviewdog -f=rdjson -reporter=github-pr-review -level=warning
+          EOF
+          
+          chmod +x ./lint_and_report.sh
+
+      # 步骤 2: 运行 Action，但将其入口点指向我们创建的脚本
+      - name: Run Custom Script inside Action Container
+        if: steps.changed-files.outputs.files_exist == 'true'
+        uses: huacnlee/autocorrect-action@v2
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 明确地运行 autocorrect-action 的 Docker 镜像
-          # 这样我们就能完全控制命令的执行方式
-          docker run --rm \
-            -v "${{ github.workspace }}:/github/workspace" \
-            --workdir /github/workspace \
-            -e REVIEWDOG_GITHUB_API_TOKEN \
-            huacnlee/autocorrect-action:v2 \
-            sh -c "autocorrect --lint --format rdjson ${{ steps.changed-files.outputs.files }} | reviewdog -f=rdjson -reporter=github-pr-review -level=warning"
+        with:
+          # 核心技巧：将入口点覆盖为我们刚刚在工作区创建的脚本
+          entrypoint: './lint_and_report.sh'
+          # 必须提供一个空的 args 来覆盖 action.yml 中的默认值
+          args: ''
