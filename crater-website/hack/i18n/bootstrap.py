@@ -19,28 +19,47 @@ except ImportError as e:
     print(f"错误：缺少必要的库 ({e})。")
     sys.exit(1)
 
-# ==============================================================================
-# 动态路径配置区
-# ==============================================================================
+def find_project_root(start_path: Path) -> Path:
+    """
+    从起始路径向上遍历，寻找项目根目录。
+    项目的根目录被定义为同时包含 'content' 和 'hack' 子目录的目录。
+    """
+    current_path = start_path.resolve()
+    while True:
+        # 检查当前路径是否包含项目根目录的标记
+        if (current_path / 'content').is_dir() and \
+           (current_path / 'hack').is_dir() and \
+           (current_path / 'messages').is_dir():
+            return current_path
+
+        # 如果到达了文件系统的根目录，则停止查找
+        parent_path = current_path.parent
+        if parent_path == current_path:
+            raise FileNotFoundError(f"无法从 '{start_path}' 向上找到项目根目录。请确保 'content', 'hack', 'messages' 目录存在于项目根目录下。")
+
+        current_path = parent_path
+
+# 确定搜索的起始点
 try:
-    SCRIPT_DIR = Path(__file__).resolve().parent
-    PROJECT_ROOT = SCRIPT_DIR.parent.parent
+    # 方案A：从脚本文件所在目录开始
+    start_point = Path(__file__).parent
 except NameError:
-    # 兼容在 notebook 等环境中运行
-    SCRIPT_DIR = Path.cwd()
-    PROJECT_ROOT = SCRIPT_DIR
+    # 方案B：在notebook等环境中，从当前工作目录开始
+    start_point = Path.cwd()
+
+# 动态地找到项目根目录
+PROJECT_ROOT = find_project_root(start_point)
 
 # ==============================================================================
-# 启动前的配置区
+# 启动前的配置区 (现在这些路径总是正确的)
 # ==============================================================================
 SCAN_DIRECTORIES = [
     PROJECT_ROOT / 'content' / 'docs',
     PROJECT_ROOT / 'messages'
 ]
+# 假设你的 src 目录也在项目根目录下
 I18N_CONFIG_PATH = PROJECT_ROOT / 'src' / 'i18n' / 'config.ts'
 
-# ==============================================================================
-# 引导框架
 # ==============================================================================
 
 def get_i18n_config() -> Tuple[str, Dict[str, str]]:
@@ -129,14 +148,38 @@ def main(args):
     if args.changed_files:
         print(f"\n🔄 检测到变更文件列表，将只处理受影响的文档家族。")
         # 将逗号分隔的字符串转换为 Path 对象列表
-        changed_files_list = [PROJECT_ROOT / p.strip() for p in args.changed_files.split(',') if p.strip()]
+        # 将逗号分隔的字符串转换为 Path 对象列表
+        raw_paths = [p.strip() for p in args.changed_files.split(',') if p.strip()]
         
+        # 获取项目根目录的文件夹名，例如 "crater-website"
+        project_root_name = PROJECT_ROOT.name
+
+        for raw_path_str in raw_paths:
+            path_obj = Path(raw_path_str)
+            
+            # 检查CI/CD提供的路径是否以项目根目录名开头
+            if path_obj.parts and path_obj.parts[0] == project_root_name:
+                # 如果是，则移除这个重复的前缀，获取真正的相对路径
+                # e.g., 'crater-website/content/docs' -> 'content/docs'
+                relative_path = Path(*path_obj.parts[1:])
+            else:
+                # 否则，假定它已经是正确的相对路径
+                relative_path = path_obj
+            
+            # 使用修正后的相对路径构建最终的绝对路径
+            absolute_path = PROJECT_ROOT / relative_path
+            changed_files_list.append(absolute_path)
+        
+        print("  - 已成功解析以下变更文件:")
+        for p in changed_files_list:
+            print(f"    - {p}")
+
         affected_families = {}
         for prefix, files_map in doc_families.items():
             # 检查该家族中是否有任何文件在变更列表中
             if any(path in changed_files_list for path in files_map.values()):
                 affected_families[prefix] = files_map
-        
+            print(f"  - 文档家族 '{prefix.replace(str(PROJECT_ROOT), '').lstrip('/')}' 包含 {len(files_map)} 个语言文件。")
         doc_families = affected_families
         if not doc_families:
             print("✅ 所有变更的文件都不属于任何已知文档家族，本次无需翻译。")
