@@ -122,7 +122,7 @@ jobs:
         # 仅当上一步确定有需要处理的文件时才运行
         if: steps.files-to-process.outputs.has_files == 'true'
         run: |
-          python scripts/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
+          python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
       # 步骤 6: 提交变更并创建 Pull Request
       - name: 🤖 Create Pull Request with Translations
