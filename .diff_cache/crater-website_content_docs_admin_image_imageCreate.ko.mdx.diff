@@ -1,0 +1,13 @@
+diff --git crater-website/content/docs/admin/image/imageCreate.ko.mdx crater-website/content/docs/admin/image/imageCreate.ko.mdx
+index c485b46..f175270 100644
+--- crater-website/content/docs/admin/image/imageCreate.ko.mdx
++++ crater-website/content/docs/admin/image/imageCreate.ko.mdx
+@@ -53,7 +53,7 @@ description: 관리자 권한 하의 이미지 생성 기능은 더 강력한 
+ - 예: `cu12.8.1`
+ - 기존 태그와 중복될 수 없습니다.
+ - 알파벳, 숫자, 점, 밑줄, 하이픈만 허용됩니다.
+-- 길이 제한은 1~128자입니다.
++- 길이 제한은 1~128 자입니다.
+ - 점 또는 하이픈으로 시작하거나 끝날 수 없습니다.
+ 
+ **🔗 이미지 전체 링크**

@@ -1,0 +1,10 @@
+diff --git crater-website/content/docs/admin/more/fluid.ko.mdx crater-website/content/docs/admin/more/fluid.ko.mdx
+index 84c40a2..3785a1d 100644
+--- crater-website/content/docs/admin/more/fluid.ko.mdx
++++ crater-website/content/docs/admin/more/fluid.ko.mdx
+@@ -1,4 +1,4 @@
+ ---
+ title: "Fluid 구성"
+-description: "Fluid를 데이터 캐싱 가속을 위해 구성"
++description: "Fluid 를 데이터 캐싱 가속을 위해 구성"
+ ---

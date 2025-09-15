@@ -1,0 +1,39 @@
+diff --git crater-website/content/docs/user/quick-start/interactive.ko.md crater-website/content/docs/user/quick-start/interactive.ko.md
+index f2e6606..8afd567 100644
+--- crater-website/content/docs/user/quick-start/interactive.ko.md
++++ crater-website/content/docs/user/quick-start/interactive.ko.md
+@@ -7,14 +7,14 @@ description: 즉시 사용 가능한 Jupyter Lab, 인터랙티브 작업의 생
+ 
+ ## 인터랙티브 작업 생성
+ 
+-**"플랫폼 개요"** 페이지 또는 **"내 작업" -> "인터랙티브 작업"** 페이지에서 **"새로운 Jupyter Lab"** 버튼을 클릭하여 Jupyter Lab의 새 작업 페이지로 이동할 수 있습니다.
++**"플랫폼 개요"** 페이지 또는 **"내 작업" -> "인터랙티브 작업"** 페이지에서 **"새로운 Jupyter Lab"** 버튼을 클릭하여 Jupyter Lab 의 새 작업 페이지로 이동할 수 있습니다.
+ 
+ ![](./images/inter/start.webp)
+ 
+ **"새로운 Jupyter Lab"** 페이지에서는 **인터랙티브 작업에 대한 다양한 설정**을 수행할 수 있습니다:
+ 
+ - 작업 이름
+-- 작업 자원(예: CPU 코어 수, 메모리 사용량, GPU 사용 여부 및 사용할 GPU 모델 선택)
++- 작업 자원 (예: CPU 코어 수, 메모리 사용량, GPU 사용 여부 및 사용할 GPU 모델 선택)
+ - 컨테이너 이미지
+ - 데이터 마운트 디렉토리 설정
+ - 환경 변수 추가
+@@ -74,7 +74,7 @@ description: 즉시 사용 가능한 Jupyter Lab, 인터랙티브 작업의 생
+ 
+ ![](./images/inter/clone.webp)
+ 
+-복제된 작업과 동일한 설정이 자동으로 생성되었음을 확인할 수 있습니다(자동으로 입력됨). 사용자는 약간 수정 후 제출할 수 있습니다.
++복제된 작업과 동일한 설정이 자동으로 생성되었음을 확인할 수 있습니다 (자동으로 입력됨). 사용자는 약간 수정 후 제출할 수 있습니다.
+ 
+ ## 작업 상세 페이지
+ 
+@@ -98,7 +98,7 @@ description: 즉시 사용 가능한 Jupyter Lab, 인터랙티브 작업의 생
+ 
+ ### 인터랙티브 페이지
+ 
+-- 인터랙티브 페이지: Jupyter Notebook으로 이동할 수 있습니다.
++- 인터랙티브 페이지: Jupyter Notebook 으로 이동할 수 있습니다.
+ 
+ ![](./images/inter/jupyter.webp)
+ 
