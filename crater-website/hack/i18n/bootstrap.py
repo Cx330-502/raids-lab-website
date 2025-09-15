@@ -16,7 +16,7 @@ from pathlib import Path
 try:
     from translation_client import translate_files
 except ImportError as e:
-    print(f"错误：缺少必要的库 ({e})。")
+    print(f"错误：无法导入 'translation_client'。请确保它与 bootstrap.py 位于同一目录或在 Python 路径中。 ({e})")
     sys.exit(1)
 
 def find_project_root(start_path: Path) -> Path:
@@ -26,50 +26,36 @@ def find_project_root(start_path: Path) -> Path:
     """
     current_path = start_path.resolve()
     while True:
-        # 检查当前路径是否包含项目根目录的标记
-        if (current_path / 'content').is_dir() and \
-           (current_path / 'hack').is_dir() and \
-           (current_path / 'messages').is_dir():
+        if (current_path / 'content').is_dir() and (current_path / 'hack').is_dir() (current_path / 'messages').is_dir():
             return current_path
-
-        # 如果到达了文件系统的根目录，则停止查找
         parent_path = current_path.parent
         if parent_path == current_path:
-            raise FileNotFoundError(f"无法从 '{start_path}' 向上找到项目根目录。请确保 'content', 'hack', 'messages' 目录存在于项目根目录下。")
-
+            raise FileNotFoundError(f"无法从 '{start_path}' 向上找到项目根目录。")
         current_path = parent_path
 
-# 确定搜索的起始点
 try:
-    # 方案A：从脚本文件所在目录开始
     start_point = Path(__file__).parent
 except NameError:
-    # 方案B：在notebook等环境中，从当前工作目录开始
     start_point = Path.cwd()
 
 # 动态地找到项目根目录
 PROJECT_ROOT = find_project_root(start_point)
-
-# ==============================================================================
-# 启动前的配置区 (现在这些路径总是正确的)
-# ==============================================================================
 SCAN_DIRECTORIES = [
     PROJECT_ROOT / 'content' / 'docs',
     PROJECT_ROOT / 'messages'
 ]
-# 假设你的 src 目录也在项目根目录下
 I18N_CONFIG_PATH = PROJECT_ROOT / 'src' / 'i18n' / 'config.ts'
+# 定义由 GitHub Actions Workflow 创建的 diff 文件缓存目录
+DIFF_CACHE_DIR = PROJECT_ROOT / '.diff_cache'
 
-# ==============================================================================
 
 def get_i18n_config() -> Tuple[str, Dict[str, str]]:
-    """从 Starlight 配置文件中读取默认语言和支持的语言列表。"""
     print(f"🤖 正在从 '{I18N_CONFIG_PATH}' 读取原生i18n配置...")
     try:
         with open(I18N_CONFIG_PATH, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        print(f"❌ 错误：配置文件 '{I18N_CONFIG_PATH}' 未找到！请检查路径。")
+        print(f"❌ 错误：配置文件 '{I18N_CONFIG_PATH}' 未找到！")
         sys.exit(1)
         
     default_locale_match = re.search(r"defaultLocale:.*=\s*['\"](\w+)['\"]", content)
@@ -92,7 +78,6 @@ def get_i18n_config() -> Tuple[str, Dict[str, str]]:
 
 
 def get_path_prefix_and_lang(file_path_str: str, default_locale: str, supported_locales: List[str]) -> Tuple[str, str]:
-    """解析文件路径，返回其语言无关的前缀和语言代码。"""
     file_path = Path(file_path_str)
     dir_path = file_path.parent
     base_name = file_path.stem
@@ -117,69 +102,48 @@ def get_path_prefix_and_lang(file_path_str: str, default_locale: str, supported_
     return path_prefix, lang
 
 def main(args):
-    """主执行函数，根据命令行参数执行不同策略。"""
     print("\n🚀 欢迎使用i18n自动化引导程序！")
-    
     default_locale, locales_map = get_i18n_config()
     supported_locales = list(locales_map.keys())
 
     # --- 步骤 1: 扫描所有指定目录，建立文档家族 ---
     doc_families: Dict[str, Dict[str, Path]] = {}
-    print("\n🔍 正在扫描以下目录:")
+    print("\n🔍 正在扫描目录...")
     for directory in SCAN_DIRECTORIES:
-        print(f"  - {directory.relative_to(PROJECT_ROOT)}")
         for root, _, files in os.walk(directory):
             for file in files:
-                if not (file.endswith('.mdx') or file.endswith('.json') or file.endswith('.md')):
-                    continue
-                
+                if not file.endswith(('.mdx', '.json', '.md')): continue
                 file_path = Path(root) / file
-                # 假设 get_path_prefix_and_lang 能正确处理路径
                 path_prefix, lang = get_path_prefix_and_lang(str(file_path), default_locale, supported_locales)
-                
-                if path_prefix not in doc_families:
-                    doc_families[path_prefix] = {}
+                if path_prefix not in doc_families: doc_families[path_prefix] = {}
                 doc_families[path_prefix][lang] = file_path
-            
     print(f"📊 扫描完成，共找到 {len(doc_families)} 个文档家族。")
 
-    # --- 步骤 2: 根据变更文件列表过滤受影响的家族 (逻辑不变) ---
     changed_files_list = []
+    diff_content_map = {}
     if args.changed_files:
-        print(f"\n🔄 检测到变更文件列表，将只处理受影响的文档家族。")
-        # 将逗号分隔的字符串转换为 Path 对象列表
-        # 将逗号分隔的字符串转换为 Path 对象列表
+        print(f"\n🔄 检测到变更文件列表，将处理受影响的文档家族。")
         raw_paths = [p.strip() for p in args.changed_files.split(',') if p.strip()]
         
-        # 获取项目根目录的文件夹名，例如 "crater-website"
-        project_root_name = PROJECT_ROOT.name
-
         for raw_path_str in raw_paths:
-            path_obj = Path(raw_path_str)
-            
-            # 检查CI/CD提供的路径是否以项目根目录名开头
-            if path_obj.parts and path_obj.parts[0] == project_root_name:
-                # 如果是，则移除这个重复的前缀，获取真正的相对路径
-                # e.g., 'crater-website/content/docs' -> 'content/docs'
-                relative_path = Path(*path_obj.parts[1:])
-            else:
-                # 否则，假定它已经是正确的相对路径
-                relative_path = path_obj
-            
-            # 使用修正后的相对路径构建最终的绝对路径
-            absolute_path = PROJECT_ROOT / relative_path
+            # 这里的路径已经是相对于项目根目录的，无需再处理前缀
+            absolute_path = PROJECT_ROOT / raw_path_str
             changed_files_list.append(absolute_path)
+            
+            # 读取对应的 diff 文件
+            try:
+                diff_file_name = raw_path_str.replace(os.sep, '_') + '.diff'
+                diff_file_path = DIFF_CACHE_DIR / diff_file_name
+                if diff_file_path.is_file():
+                    diff_content = diff_file_path.read_text('utf-8')
+                    diff_content_map[str(absolute_path)] = diff_content
+                    print(f"    - 已加载文件 '{raw_path_str}' 的 diff 内容。")
+                else:
+                    print(f"    - 文件 '{raw_path_str}' 是新增文件，无 diff。")
+            except Exception as e:
+                print(f"    - 警告：读取 diff 文件 '{diff_file_path}' 时出错: {e}")
         
-        print("  - 已成功解析以下变更文件:")
-        for p in changed_files_list:
-            print(f"    - {p}")
-
-        affected_families = {}
-        for prefix, files_map in doc_families.items():
-            # 检查该家族中是否有任何文件在变更列表中
-            if any(path in changed_files_list for path in files_map.values()):
-                affected_families[prefix] = files_map
-            print(f"  - 文档家族 '{prefix.replace(str(PROJECT_ROOT), '').lstrip('/')}' 包含 {len(files_map)} 个语言文件。")
+        affected_families = {p: fm for p, fm in doc_families.items() if any(fp in changed_files_list for fp in fm.values())}
         doc_families = affected_families
         if not doc_families:
             print("✅ 所有变更的文件都不属于任何已知文档家族，本次无需翻译。")
@@ -188,21 +152,16 @@ def main(args):
 
     # --- 步骤 3: 遍历受影响的家族，智能执行翻译 ---
     for prefix, files_map in doc_families.items():
-        # (这部分用于打印相对路径，可以保持不变)
-        relative_prefix_str = prefix.replace(str(PROJECT_ROOT), '').lstrip('/')
+        relative_prefix_str = prefix.replace(str(PROJECT_ROOT), '').lstrip(os.sep)
         print(f"\n➡️ 正在处理文档家族: '{relative_prefix_str}'")
 
-        # --- 3.1 智能确定本次操作的“真相来源 (Source of Truth)” ---
-        source_of_truth_lang = None
-        source_of_truth_path = None
-
-        # 找出这个家族里哪些文件被修改了
+        source_of_truth_lang, source_of_truth_path = None, None
         family_changed_files = {lang: path for lang, path in files_map.items() if path in changed_files_list}
-
+        
+        # 确定翻译基准
         if default_locale in family_changed_files:
             # 优先规则：如果默认语言文件被修改，它就是源头
-            source_of_truth_lang = default_locale
-            source_of_truth_path = family_changed_files[default_locale]
+            source_of_truth_lang, source_of_truth_path = default_locale, family_changed_files[default_locale]
             print(f"  - 策略：检测到默认语言 '{default_locale}' 文件被修改，将以它为基准。")
         elif len(family_changed_files) == 1:
             # 次要规则：如果只有一个非默认语言文件被修改
@@ -215,8 +174,7 @@ def main(args):
         else:
             # Fallback 规则：没有文件被修改（例如，全局添加新语言），或变更的文件是新增的
             if default_locale in files_map:
-                source_of_truth_lang = default_locale
-                source_of_truth_path = files_map[default_locale]
+                source_of_truth_lang, source_of_truth_path = default_locale, files_map[default_locale]
                 print(f"  - 策略：未检测到文件变更，使用默认语言 '{default_locale}' 为基准。")
             elif files_map:
                 source_of_truth_lang, source_of_truth_path = list(files_map.items())[0]
@@ -242,69 +200,42 @@ def main(args):
                 source_language=source_of_truth_lang,
                 source_language_full=locales_map[source_of_truth_lang],
                 target_languages=targets_to_create,
-                target_language_full=[locales_map[lang] for lang in targets_to_create],
-                write_to_existing_files=False # 确保这是 False
+                target_language_full=[locales_map.get(lang, lang) for lang in targets_to_create]
             )
-            # 写入新创建的文件
             for lang, content in creation_results.items():
                 source_suffix = source_of_truth_path.suffix
-                target_path: Path
-
-                # === 核心修正逻辑 ===
-                # 检查源文件的文件名（不含后缀）本身是否就是一个支持的语言代码 (e.g., 'zh' from 'zh.json')
-                # 这能准确地区分 'zh.json' 和 'index.mdx' 这类文件。
                 if source_of_truth_path.stem in supported_locales:
-                    # 对于 'zh.json' 这种情况, prefix 是它所在的目录, e.g., '.../messages'
-                    # 正确的目标路径是 目录 / 新语言代码.后缀, e.g., '.../messages/ko.json'
                     target_path = Path(prefix) / f"{lang}{source_suffix}"
                 else:
-                    # 对于 'index.mdx' 或 'index.zh.mdx' 这类文件，使用原始逻辑
-                    # prefix 是 '.../index'
-                    # 正确的路径是 前缀.新语言代码.后缀
-                    # 例如: '.../index.ko.mdx'
-                    if lang == default_locale:
-                        # 默认语言不需要语言代码后缀
-                        target_path = Path(f"{prefix}{source_suffix}")
-                    else:
-                        target_path = Path(f"{prefix}.{lang}{source_suffix}")
-                
-                # 创建可能不存在的父目录
+                    target_path = Path(f"{prefix}.{lang}{source_suffix}") if lang != default_locale else Path(f"{prefix}{source_suffix}")
                 target_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                with open(target_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                target_path.write_text(content, encoding='utf-8')
                 print(f"    - ✅ 已创建: '{target_path.relative_to(PROJECT_ROOT)}'")
-        else:
-            print("  - 任务：无需创建新语言文件。")
 
-        # (B) 更新已有的语言文件
         if targets_to_update:
             print(f"  - 任务：准备更新以下现有文件: {targets_to_update}")
-            # 对于更新，我们提供源文件和所有目标文件的路径
             paths_for_update = [str(source_of_truth_path)] + [str(files_map[lang]) for lang in targets_to_update]
             translate_files(
                 file_paths=paths_for_update,
                 source_language=source_of_truth_lang,
                 source_language_full=locales_map[source_of_truth_lang],
                 target_languages=targets_to_update,
-                target_language_full=[locales_map[lang] for lang in targets_to_update],
-                write_to_existing_files=True # 直接让 client 写入
+                target_language_full=[locales_map.get(lang, lang) for lang in targets_to_update],
+                write_to_existing_files=True,
+                diff_content_map=diff_content_map
             )
             print(f"    - ✅ 更新任务已提交给翻译客户端。")
-        else:
-            print("  - 任务：无需更新现有语言文件。")
 
     print("\n🎉🎉🎉 引导过程全部完成！🎉🎉🎉")
 
+
 if __name__ == "__main__":
-    # 命令行参数解析部分保持不变
-    parser = argparse.ArgumentParser(description="i18n 自动化翻译引导程序 (健壮版)")
+    parser = argparse.ArgumentParser(description="i18n 自动化翻译引导程序 (支持 Diff)")
     parser.add_argument(
         "--changed-files", 
         type=str, 
         default="",
-        help="一个用逗号分隔的变更文件路径列表。如果提供，脚本将只处理包含这些文件的文档家族。"
+        help="一个用逗号分隔的、相对于项目根目录的变更文件路径列表。"
     )
-    
     parsed_args = parser.parse_args()
     main(parsed_args)

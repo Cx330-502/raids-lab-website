@@ -1,21 +1,15 @@
 # ==============================================================================
-#  Workflow: Smart Automatic i18n Translation
-#  
-#  功能:
-#  1. 自动检测 content/docs, messages, 和 i18n 配置文件的变更。
-#  2. 在 push 到 main 分支或给 PR 打上 'run-translation' 标签时触发。
-#  3. 智能识别新增、修改、重命名的文件，并忽略被删除的文件。
-#  4. 调用 Python 脚本处理翻译逻辑。
-#  5. 自动将翻译结果创建一个新的 Pull Request。
+#  Workflow: Smart Automatic i18n Translation (v4 - Production Ready)
+#
+#  Features:
+#  - Uses a dedicated GitHub App for secure, isolated authentication.
+#  - Prevents recursive workflow runs by checking the commit message.
+#  - Employs a "three-dot diff" to precisely identify PR-specific changes.
 # ==============================================================================
 
 name: Smart Automatic i18n Translation
 
-# ==============================================================================
-#  触发条件 (Triggers)
-# ==============================================================================
 on:
-  # 场景 1: 当代码被推送到 main 分支，并且变更内容涉及文档、消息或i18n配置时
   push:
     branches:
       - main
@@ -23,127 +17,107 @@ on:
       - 'crater-website/content/docs/**'
       - 'crater-website/messages/**'
       - 'crater-website/src/i18n/config.ts'
-      - '.github/**'
-
-  # 场景 2: 当一个打开的 Pull Request 被打上 'run-translation' 标签时
+      - '.github/workflows/auto-translate.yml'
   pull_request:
     types:
       - labeled
 
-# ==============================================================================
-#  工作流任务 (Jobs)
-# ==============================================================================
 jobs:
   auto-translate:
-    # --- 条件执行 ---
-    # 仅在以下情况运行时才执行此任务:
-    # - 事件是推送到 main 分支
-    # - 或者事件是给 PR 打标签，且标签名必须是 'run-translation'
-    if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && github.event.label.name == 'run-translation')
+    # 通过检查最后一次的 commit message 来防止工作流被自己的提交所触发，这是最简单可靠的方式。
+    if: "!startsWith(github.event.head_commit.message, 'chore(i18n):')"
 
-    # --- 运行环境 ---
-    # 关键：指定使用您配置好的 self-hosted runner
     runs-on: self-hosted
-
-    # --- 任务步骤 ---
     steps:
-      # 步骤 1: 检出代码
+      # 步骤 1: 使用 GitHub App 的 ID 和私钥生成一个短期有效的安装令牌
+      - name: 🔐 Generate a token
+        id: generate-token
+        uses: tibdex/github-app-token@v2
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.PRIVATE_KEY }}
+
+      # 步骤 2: 使用 App 生成的令牌检出代码
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          # 必须获取所有历史记录，以便 git diff 能正确比较分支间的差异
           fetch-depth: 0
-          # 使用 PAT，因为它有权限触发新的 PR 创建工作流
-          token: ${{ secrets.PAT_FOR_ACTIONS }}
+          token: ${{ steps.generate-token.outputs.token }}
 
-      # 步骤 2: 设置 Python 环境
+      # 步骤 3: 设置 Python 环境并安装依赖
       - name: 🐍 Set up Python environment
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # 请根据您 runner 的环境修改
+          python-version: '3.10'
 
-      # 步骤 3: 安装依赖
       - name: 📦 Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # 假设您的 translation_client.py 只需要 requests
-          pip install requests
-          # 如果您有 requirements.txt 文件, 推荐使用:
-          # pip install -r requirements.txt
+        run: pip install requests
 
-      # 步骤 4: 确定需要处理的文件 (新增/修改/重命名)
-      - name: ⚙️ Determine Files to Process (Added/Modified/Renamed)
+      # 步骤 4: 智能确定需要处理的文件并为每个文件生成 Diff
+      - name: ⚙️ Determine Files & Generate Diffs
         id: files-to-process
         run: |
-          # 设置比较的基准点
           if [[ "${{ github.event_name }}" == "push" ]]; then
             BASE_REF="${{ github.event.before }}"
             HEAD_REF="${{ github.event.after }}"
-            echo "Event: Push to main. Comparing commits $BASE_REF...$HEAD_REF"
           else # pull_request
-            git fetch origin ${{ github.base_ref }}
-            git fetch origin ${{ github.head_ref }}
             BASE_REF="origin/${{ github.base_ref }}"
             HEAD_REF="origin/${{ github.head_ref }}"
-            echo "Event: PR labeled. Comparing branches $BASE_REF...$HEAD_REF"
+            git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} --no-tags
           fi
-
-          # 使用 git diff --diff-filter 筛选文件状态
-          # A = Added, M = Modified, R = Renamed
-          # D = Deleted 的文件会被自动忽略
-          FILES_TO_PROCESS=$(git diff --name-only --diff-filter=AMR $BASE_REF $HEAD_REF)
-          DELETED_FILES=$(git diff --name-only --diff-filter=D $BASE_REF $HEAD_REF)
-
-          if [[ -n "$DELETED_FILES" ]]; then
-            echo "Detected deleted files (will be ignored by translation script):"
-            echo "$DELETED_FILES"
-          fi
+          
+          # 使用三点 diff (`...`) 精确找出本次事件独有的变更
+          FILES_TO_PROCESS=$(git diff --name-only --diff-filter=AMR $BASE_REF...$HEAD_REF)
 
           if [[ -z "$FILES_TO_PROCESS" ]]; then
-            echo "No new or modified files detected that require translation. Workflow will stop."
+            echo "No new or modified files unique to this event were detected. Workflow will stop."
             echo "has_files=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          # 将需要处理的文件列表转换为逗号分隔的参数
-          FILES_TO_PROCESS_ARG=$(echo "$FILES_TO_PROCESS" | tr '\n' ',' | sed 's/,$//')
-          
-          echo "Detected added/modified files to process:"
+          echo "has_files=true" >> $GITHUB_OUTPUT
+          echo "Files to process:"
           echo "$FILES_TO_PROCESS"
           
-          # 输出结果供后续步骤使用
-          echo "has_files=true" >> $GITHUB_OUTPUT
+          # 创建用于存放 diff 的临时目录
+          mkdir -p .diff_cache
+
+          # 为每个被修改的文件(Modified/Renamed)生成 diff
+          MODIFIED_FILES=$(git diff --name-only --diff-filter=MR $BASE_REF...$HEAD_REF)
+          for file in $MODIFIED_FILES; do
+            # 将文件路径中的 / 替换为 _，作为 diff 文件名
+            diff_filename=$(echo "$file" | tr '/' '_')
+            git diff --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
+            echo "  - Created diff for $file"
+          done
+
+          # 将文件列表转换为逗号分隔的参数
+          FILES_TO_PROCESS_ARG=$(echo "$FILES_TO_PROCESS" | tr '\n' ',' | sed 's/,$//')
           echo "files=${FILES_TO_PROCESS_ARG}" >> $GITHUB_OUTPUT
 
-      # 步骤 5: 运行翻译引导脚本
+      # 步骤 5: 运行引导脚本，传入变更文件列表
       - name: 🚀 Run Translation Bootstrap Script
-        # 仅当上一步确定有需要处理的文件时才运行
         if: steps.files-to-process.outputs.has_files == 'true'
         run: |
           python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
-      # 步骤 6: 提交变更并创建 Pull Request
+      # 步骤 6: 使用 App 身份创建包含翻译结果的 Pull Request
       - name: 🤖 Create Pull Request with Translations
-        # 仅当上一步确定有需要处理的文件时才运行
         if: steps.files-to-process.outputs.has_files == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.PAT_FOR_ACTIONS }}
+          token: ${{ steps.generate-token.outputs.token }}
           commit-message: "chore(i18n): 自动同步多语言翻译"
           title: "🌐 [Auto-Translate] 同步多语言文件"
           body: |
-            由 GitHub Actions 机器人根据最新变更自动同步翻译。
-
-            - **新增或修改**的文件已自动翻译。
-            - **已删除**的文件已被智能忽略。
-
+            由 **${{ secrets.APP_NAME }}** 机器人根据最新变更自动同步翻译。
+            
             **触发事件:** `${{ github.event_name }}`
             
-            *工作流日志中的 "Run Translation Bootstrap Script" 步骤会显示本次翻译所使用的基准文件。*
-
-            请审查由 AI 生成的翻译并合并。
+            *此 PR 只包含本次事件中独有的变更，已智能排除合并主干所引入的 commits。*
           branch: "feature/auto-translate-${{ github.run_id }}"
           delete-branch: true
           labels: "i18n, automated"
+          # 使用 App 的信息作为作者，让 commit 历史清晰可辨
+          author: ${{ secrets.APP_NAME }}[bot] <${{ secrets.APP_ID }}+${{ secrets.APP_NAME }}[bot]@users.noreply.github.com>
+          committer: ${{ secrets.APP_NAME }}[bot] <${{ secrets.APP_ID }}+${{ secrets.APP_NAME }}[bot]@users.noreply.github.com>
