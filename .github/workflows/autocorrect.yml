@@ -20,9 +20,12 @@ on:
       - '.github/**'
       - 'crater-website/src/**'
       - 'crater-website/content/**'
-    push:
-      branches:
-        - 'feature/auto-translate-**'
+  # 2. 新增触发器：当指定的 workflow 成功完成时运行
+  workflow_run:
+    # 这里的名称必须和 auto-translate.yml 的 `name` 完全一致
+    workflows: ["Smart Automatic i18n Translation"]
+    types:
+      - completed
 
 jobs:
   autocorrect:

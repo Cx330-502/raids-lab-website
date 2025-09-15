@@ -1,11 +1,10 @@
 # ==============================================================================
-#  Workflow: Smart Automatic i18n Translation (v5 - Final)
+#  Workflow: Smart Automatic i18n Translation (v4 - Production Ready)
 #
 #  Features:
-#  - Uses a dedicated GitHub App for secure authentication.
-#  - Prevents self-triggering by checking the branch name.
-#  - Other CI checks should be configured to trigger on `push` to `feature/auto-translate-**`
-#    to ensure they run on this workflow's PRs.
+#  - Uses a dedicated GitHub App for secure, isolated authentication.
+#  - Prevents recursive workflow runs by checking the event sender.
+#  - Employs a "three-dot diff" to precisely identify PR-specific changes.
 # ==============================================================================
 
 name: Smart Automatic i18n Translation
@@ -14,19 +13,27 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'crater-website/content/docs/**'
+      - 'crater-website/messages/**'
+      - 'crater-website/src/i18n/config.ts'
+      - '.github/workflows/auto-translate.yml'
   pull_request:
     types:
       - labeled
 
 jobs:
   auto-translate:
-    # --- 核心修改 ---
-    # 增加一个条件：确保工作流不会在它自己创建的分支上运行。
-    # `github.head_ref` 变量在 push 和 pull_request 事件中都有效，代表分支名。
-    if: "!startsWith(github.head_ref, 'feature/auto-translate-')"
+    # 优化后的条件：
+    # 1. 如果是 push 事件，commit message 不能是 'chore(i18n):' 开头 (防止自己 push main 后无限循环)
+    # 2. 如果是 pull_request 事件，发起者不能是机器人 (防止自己给自己打标签后无限循环)
+    if: >-
+      (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(i18n):')) ||
+      (github.event_name == 'pull_request' && github.event.sender.type != 'Bot')
 
     runs-on: self-hosted
     steps:
+      # 步骤 1: 使用 GitHub App 的 ID 和私钥生成一个短期有效的安装令牌
       - name: 🔐 Generate a token
         id: generate-token
         uses: tibdex/github-app-token@v2
@@ -34,12 +41,14 @@ jobs:
           app_id: ${{ secrets.APP_ID }}
           private_key: ${{ secrets.PRIVATE_KEY }}
 
+      # 步骤 2: 使用 App 生成的令牌检出代码
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ steps.generate-token.outputs.token }}
 
+      # 步骤 3: 设置 Python 环境并安装依赖
       - name: 🐍 Set up Python environment
         uses: actions/setup-python@v4
         with:
@@ -48,6 +57,7 @@ jobs:
       - name: 📦 Install dependencies
         run: pip install requests
 
+      # 步骤 4: 智能确定需要处理的文件并为每个文件生成 Diff
       - name: ⚙️ Determine Files & Generate Diffs
         id: files-to-process
         run: |
@@ -84,11 +94,13 @@ jobs:
           FILES_TO_PROCESS_ARG=$(echo "$FILES_TO_PROCESS" | tr '\n' ',' | sed 's/,$//')
           echo "files=${FILES_TO_PROCESS_ARG}" >> $GITHUB_OUTPUT
 
+      # 步骤 5: 运行引导脚本，传入变更文件列表
       - name: 🚀 Run Translation Bootstrap Script
         if: steps.files-to-process.outputs.has_files == 'true'
         run: |
           python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
+      # 步骤 6: 使用 App 身份创建包含翻译结果的 Pull Request
       - name: 🤖 Create Pull Request with Translations
         if: steps.files-to-process.outputs.has_files == 'true'
         uses: peter-evans/create-pull-request@v6
