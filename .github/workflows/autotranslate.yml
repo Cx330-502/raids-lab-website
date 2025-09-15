@@ -25,11 +25,8 @@ on:
 
 jobs:
   auto-translate:
-    # 增强的防循环和忽略条件
-    if: >
-      github.event.head_commit.author.name != secrets.APP_NAME &&
-      github.event.head_commit.author.name != 'github-actions[bot]' &&
-      !startsWith(github.event.head_commit.message, 'chore(i18n):')
+    # 通过检查最后一次的 commit message 来防止工作流被自己的提交所触发，这是最简单可靠的方式。
+    if: "!startsWith(github.event.head_commit.message, 'chore(i18n):')"
 
     runs-on: self-hosted
     steps:
