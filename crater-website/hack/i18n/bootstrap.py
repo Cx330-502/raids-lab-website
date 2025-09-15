@@ -26,7 +26,7 @@ def find_project_root(start_path: Path) -> Path:
     """
     current_path = start_path.resolve()
     while True:
-        if (current_path / 'content').is_dir() and (current_path / 'hack').is_dir() (current_path / 'messages').is_dir():
+        if (current_path / 'content').is_dir() and (current_path / 'hack').is_dir() and (current_path / 'messages').is_dir():
             return current_path
         parent_path = current_path.parent
         if parent_path == current_path:
