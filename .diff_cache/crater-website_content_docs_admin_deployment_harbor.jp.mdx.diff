@@ -1,0 +1,68 @@
+diff --git crater-website/content/docs/admin/deployment/harbor.jp.mdx crater-website/content/docs/admin/deployment/harbor.jp.mdx
+index e43f88c..a4b4d74 100644
+--- crater-website/content/docs/admin/deployment/harbor.jp.mdx
++++ crater-website/content/docs/admin/deployment/harbor.jp.mdx
+@@ -6,7 +6,7 @@ description: Craterは、クラスター内でイメージのビルド、スト
+ 
+ ## デプロイメント
+ 
+-デプロイメントには[公式のHarbor Helm Chart](https://github.com/goharbor/harbor-helm)の使用をお勧めします。基本的な例:
++デプロイメントには[公式の Harbor Helm Chart](https://github.com/goharbor/harbor-helm)の使用をお勧めします。基本的な例：
+ 
+ ```bash
+ helm repo add harbor https://helm.goharbor.io
+@@ -15,20 +15,20 @@ helm pull harbor/harbor --version 1.14.0
+ helm install crater-harbor harbor/harbor -f values.yaml -n harbor-system --create-namespace
+ ```
+ 
+-## 注意: 以下の点を確認してください:
++## 注意：以下の点を確認してください：
+ 
+-ドメイン名（例: crater-harbor.act.buaa.edu.cn）はクラスターまたは内部DNS内で解決可能である必要があります。
++ドメイン名（例：crater-harbor.act.buaa.edu.cn）はクラスターまたは内部 DNS 内で解決可能である必要があります。
+ 
+ 有効な TLS 設定があるか、または HTTP での公開のために expose.tls.enabled=false を設定している必要があります。
+ 
+ ## 設定のヒント
+-values.yamlでexternalURLを正しく設定してください:
++values.yaml で externalURL を正しく設定してください：
+ ```yaml
+ externalURL: https://crater-harbor.act.buaa.edu.cn
+ ```
+ 適切なクラス（ingress-nginx）とホスト名を持つイングレスを設定してください。
+ 
+-テスト用に内部証明書を使用するか、TLSを無効にしてください:
++テスト用に内部証明書を使用するか、TLS を無効にしてください：
+ ```yaml
+ expose:
+   tls:
+@@ -36,7 +36,7 @@ expose:
+ ```
+ 
+ ## イメージプルシークレット
+-CraterコンポーネントがHarborからイメージをプルできるようにするには:
++Crater コンポーネントが Harbor からイメージをプルできるようにするには：
+ ```bash
+ kubectl create secret docker-registry crater-harbor-auth \
+   --docker-server=crater-harbor.act.buaa.edu.cn \
+@@ -47,7 +47,7 @@ kubectl create secret docker-registry crater-harbor-auth \
+ その後、このシークレットを pod.spec.imagePullSecrets で参照してください。
+ 
+ ## Harbor プロジェクト構造
+-プロジェクトは以下の通りに整理されています:
++プロジェクトは以下の通りに整理されています：
+ | プロジェクト       | 目的                    |
+ | ------------- | -------------------------- |
+ | crater/base   | ベース OS とユーティリティ      |
+@@ -56,9 +56,9 @@ kubectl create secret docker-registry crater-harbor-auth \
+ | crater/models | 推論用の大規模モデル        |
+ 
+ ## Crater との統合
+-ほとんどのシステムコンポーネント（例: gpu-operator, ingress-nginx, prometheus）は、Harborミラーを使用するように事前に設定されています。
++ほとんどのシステムコンポーネント（例：gpu-operator, ingress-nginx, prometheus）は、Harbor ミラーを使用するように事前に設定されています。
+ 
+-イメージのパスは以下のようになります:
++イメージのパスは以下のようになります：
+ ```ruby
+ crater-harbor.act.buaa.edu.cn/crater/<component>:<tag>
+ ```

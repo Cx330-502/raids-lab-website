@@ -1,0 +1,70 @@
+diff --git crater-website/content/docs/admin/quick-start.jp.mdx crater-website/content/docs/admin/quick-start.jp.mdx
+index 097b692..cba6bb8 100644
+--- crater-website/content/docs/admin/quick-start.jp.mdx
++++ crater-website/content/docs/admin/quick-start.jp.mdx
+@@ -76,7 +76,7 @@ helm install crater oci://ghcr.io/raids-lab/crater --values values.yaml
+ 
+ ### IngressClass
+ 
+-本番クラスターでは、ロードバランサー（例: MetalLB）と Ingress コントローラーを併用するのが一般的です。しかし、最小デプロイメントのケースでは、クラスター内のサービスに外部リクエストをルーティングするための **Ingress-Nginx コントローラー** のみが必要です。これにより、ネットワークプラグインやロードバランサー機能への追加の依存を避けることができます。
++本番クラスターでは、ロードバランサー（例：MetalLB）と Ingress コントローラーを併用するのが一般的です。しかし、最小デプロイメントのケースでは、クラスター内のサービスに外部リクエストをルーティングするための **Ingress-Nginx コントローラー** のみが必要です。これにより、ネットワークプラグインやロードバランサー機能への追加の依存を避けることができます。
+ 
+ Helm を使用して Ingress-Nginx コントローラーを直接デプロイできます：
+ 
+@@ -109,7 +109,7 @@ helm upgrade --install volcano volcano-sh/volcano \
+   -f volcano/values.yaml
+ ```
+ 
+-value.yaml 設定例: https://github.com/raids-lab/crater-backend/blob/main/deployments/volcano/values.yaml
++value.yaml 設定例：https://github.com/raids-lab/crater-backend/blob/main/deployments/volcano/values.yaml
+ 
+ #### デプロイの確認
+ 
+@@ -117,7 +117,7 @@ value.yaml 設定例: https://github.com/raids-lab/crater-backend/blob/main/depl
+ kubectl get pods -n volcano-system
+ ```
+ 
+-正常に実行されているコンポーネント:
++正常に実行されているコンポーネント：
+ 
+ - `volcano-scheduler`
+ 
+@@ -175,7 +175,7 @@ NFSは分散ストレージバックエンドを提供し、HarborとCNPGのPVC
+ 
+ ### CloudNativePG (CNPG)
+ 
+-Kubernetesのステートフルコンポーネント（例: データベース、イメージリポジトリ）は、永続ストレージのサポートが必要です。最小デプロイバージョンでは、**NFSを統一された分散ストレージバックエンドとして選択**しています。それは設定が簡単で、互換性が良く、OpenEBSやCephなどの複雑なストレージシステムを追加でデプロイする必要がないからです。
++Kubernetes のステートフルコンポーネント（例：データベース、イメージリポジトリ）は、永続ストレージのサポートが必要です。最小デプロイバージョンでは、**NFS を統一された分散ストレージバックエンドとして選択**しています。それは設定が簡単で、互換性が良く、OpenEBS や Ceph などの複雑なストレージシステムを追加でデプロイする必要がないからです。
+ NFS から提供される StorageClass を使用して、Harbor と CNPG は直接 PVC を要求し、永続ストレージを実現できます。この方法では、下層のストレージの詳細を気にすることなく、軽量かつリソースが限られた環境でも簡単に実装可能です。
+ 
+ CNPG は Harbor の外部データベース管理コンポーネントです。
+@@ -245,9 +245,9 @@ CNPGはHarborの外部データベース管理コンポーネントです。
+ 
+ ### Harbor のデプロイ
+ 
+-HarborはCraterプラットフォームに依存するイメージリポジトリです。内網やオフライン環境では、パブリックイメージリポジトリ（例: DockerHub、ghcr.io）がしばしばアクセス不能であるため、Craterのフロントエンドとバックエンド、および依存イメージを保存するためのプライベートリポジトリが必要になります。
++Harbor は Crater プラットフォームに依存するイメージリポジトリです。内網やオフライン環境では、パブリックイメージリポジトリ（例：DockerHub、ghcr.io）がしばしばアクセス不能であるため、Crater のフロントエンドとバックエンド、および依存イメージを保存するためのプライベートリポジトリが必要になります。
+ Harbor を選択した理由は、**イメージ管理、権限制御、セキュリティスキャン**などの企業向け機能を備え、Kubernetes とネイティブに統合されているからです。最小限のデプロイ環境では、Harbor は**NFS ストレージ**と**CNPG 外部データベース**にのみ依存し、Redis/Postgres の組み込みバージョンを追加で依存しなくなり、全体アーキテクチャを簡素化します。
+-これにより、Craterのイメージをローカルで保存および配布でき、将来的な拡張（例: マルチユーザー、マルチプロジェクトのイメージ管理）に基礎を提供します。
++これにより、Crater のイメージをローカルで保存および配布でき、将来的な拡張（例：マルチユーザー、マルチプロジェクトのイメージ管理）に基礎を提供します。
+ 
+ Harbor は上記の **NFS** ストレージと **CNPG 外部データベース** を使用します。
+ 
+@@ -274,7 +274,7 @@ Harborは上記の **NFS** ストレージと **CNPG 外部データベース**
+      externalURL: http://192.168.103.136:30002
+      ```
+ 
+-   - 外部データベースの使用:
++   - 外部データベースの使用：
+ 
+      ```
+      database:
+@@ -287,7 +287,7 @@ Harborは上記の **NFS** ストレージと **CNPG 外部データベース**
+          existingSecret: harbor-db-password
+      ```
+ 
+-   - PVCの指定:
++   - PVC の指定：
+ 
+      ```
+      persistence:

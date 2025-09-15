@@ -1,0 +1,17 @@
+diff --git crater-website/content/docs/user/quick-start/login.jp.mdx crater-website/content/docs/user/quick-start/login.jp.mdx
+index dc36af4..77b20e5 100644
+--- crater-website/content/docs/user/quick-start/login.jp.mdx
++++ crater-website/content/docs/user/quick-start/login.jp.mdx
+@@ -45,10 +45,10 @@ GPU クラスターのアクセス権をお持ちでない場合、以下のよ
+ 
+ ### 1. ラボ外から GPU クラスターにアクセスするにはどうすればいいですか？
+ 
+-クライアントのダウンロード: https://vpn.buaa.edu.cn/portal，
++クライアントのダウンロード：https://vpn.buaa.edu.cn/portal，
+ ログイン画面の下にある「クライアントをダウンロード」をクリックし、ポップアップで対応するオペレーティングシステムを選択してダウンロードしてください。
+ 
+-### 2. VPNに接続できない場合の対処法:
++### 2. VPN に接続できない場合の対処法：
+ 
+ ローカルの DNS 解析が正しいか確認してください;
+ 

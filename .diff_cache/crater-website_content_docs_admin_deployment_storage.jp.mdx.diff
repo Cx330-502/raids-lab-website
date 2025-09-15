@@ -1,0 +1,44 @@
+diff --git crater-website/content/docs/admin/deployment/storage.jp.mdx crater-website/content/docs/admin/deployment/storage.jp.mdx
+index 81b3c90..146e65a 100644
+--- crater-website/content/docs/admin/deployment/storage.jp.mdx
++++ crater-website/content/docs/admin/deployment/storage.jp.mdx
+@@ -18,26 +18,26 @@ description: Craterは、ハイパフォーマンスなローカルワークロ
+ 
+ ### StorageClass
+ 
+-ローカルディスクのプロビジョニングに専用の`StorageClass`が設定されています。このクラスは以下のような他のチャートから参照されます:
++ローカルディスクのプロビジョニングに専用の`StorageClass`が設定されています。このクラスは以下のような他のチャートから参照されます：
+ - データベースストレージ用の`cloudnative-pg`
+ - レプリケーションを必要としない分散ジョブ出力
+ 
+-参照: [`deployments/openebs`](../deployments/openebs)
++参照：[`deployments/openebs`](../deployments/openebs)
+ 
+ ---
+ 
+ ## 2. 共有ブロックストレージ (Rook 経由の Ceph RBD)
+ 
+-複数ノードでアクセス可能な永続ボリュームが必要な場合、Craterは[Rook-Ceph RBD](https://rook.io/docs/rook/latest/ceph-block.html)を使用します。RBDボリュームは動的にプロビジョニングされ、以下の機能をサポートしています:
++複数ノードでアクセス可能な永続ボリュームが必要な場合、Crater は[Rook-Ceph RBD](https://rook.io/docs/rook/latest/ceph-block.html)を使用します。RBD ボリュームは動的にプロビジョニングされ、以下の機能をサポートしています：
+ 
+ - マイグレーションをサポートする ReadWriteOnce アクセス
+ - レプリケーションと障害復旧
+-- 以下に適しています:
++- 以下に適しています：
+   - Prometheus TSDB ストレージ
+   - 永続性を必要とする Crater の内部サービス
+   - ノード間で共有されるデータセット
+ 
+-Cephが選ばれた理由は以下の通りです:
++Ceph が選ばれた理由は以下の通りです：
+ 
+ - Rook 経由で Kubernetes ネイティブなプロビジョニングが可能
+ - 強力なコミュニティサポート
+@@ -77,4 +77,4 @@ Cephが選ばれた理由は以下の通りです:
+ 
+ NFS をストレージプロビジョーナーとして使用し、Crater で事前に設定された値を使用した公式 Helm チャートを使用することを推奨します。
+  
+-📖 詳細ガイド: [`deployments/nfs/README.md`](../deployments/nfs/README.md)
+\ No newline at end of file
++📖 詳細ガイド：[`deployments/nfs/README.md`](../deployments/nfs/README.md)
+\ No newline at end of file

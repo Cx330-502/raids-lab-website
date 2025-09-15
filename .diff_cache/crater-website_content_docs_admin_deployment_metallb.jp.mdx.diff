@@ -1,0 +1,34 @@
+diff --git crater-website/content/docs/admin/deployment/metallb.jp.mdx crater-website/content/docs/admin/deployment/metallb.jp.mdx
+index 71634cf..7707f56 100644
+--- crater-website/content/docs/admin/deployment/metallb.jp.mdx
++++ crater-website/content/docs/admin/deployment/metallb.jp.mdx
+@@ -5,7 +5,7 @@ description: MetalLB は、ノードが同じサブネットにあり、直接
+ 
+ ## 概要
+ 
+-[MetalLB](https://metallb.universe.tf/) は、ベアメタル Kubernetes クラスター用のロードバランサー実装です。Crater では、**レイヤ2 (L2) モード**を使用して **内部サービスの公開** を可能にし、ノードが同じサブネットにあり直接通信できる環境（例: キャンパスイントラネット）で最適です。
++[MetalLB](https://metallb.universe.tf/) は、ベアメタル Kubernetes クラスター用のロードバランサー実装です。Crater では、**レイヤ 2 (L2) モード**を使用して **内部サービスの公開** を可能にし、ノードが同じサブネットにあり直接通信できる環境（例：キャンパスイントラネット）で最適です。
+ 
+ Crater クラスターは、**私立大学のプライベートネットワーク**にデプロイされ、すべてのノードおよびユーザーのアクセスポイントが共通のレイヤ 2 ドメインを共有しています。そのため、MetalLB は予約された **内部 IP アドレスプール** から IP を割り当て、クラウドプロバイダーに依存することなく `LoadBalancer` タイプのサービスを公開することが可能です。
+ 
+@@ -68,7 +68,7 @@ spec:
+ ## 使い方
+ インストール後、`LoadBalancer` タイプのサービスは設定されたプールから IP を割り当てられます。
+ 
+-例:
++例：
+ ```yaml
+ apiVersion: v1
+ kind: Service
+@@ -84,9 +84,9 @@ spec:
+       targetPort: 8080
+ ```
+ 
+-MetalLB は定義されたプールからIP（例: 192.168.100.241）を自動的に割り当てます。
++MetalLB は定義されたプールから IP（例：192.168.100.241）を自動的に割り当てます。
+ 
+-割り当てられたIPを確認するには:
++割り当てられた IP を確認するには：
+ ```bash
+ kubectl get services -A -o wide
+ ```

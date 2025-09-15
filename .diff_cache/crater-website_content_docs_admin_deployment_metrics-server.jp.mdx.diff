@@ -1,0 +1,37 @@
+diff --git crater-website/content/docs/admin/deployment/metrics-server.jp.mdx crater-website/content/docs/admin/deployment/metrics-server.jp.mdx
+index f91a7db..f6ff0ff 100644
+--- crater-website/content/docs/admin/deployment/metrics-server.jp.mdx
++++ crater-website/content/docs/admin/deployment/metrics-server.jp.mdx
+@@ -5,11 +5,11 @@ description: metrics-server は、Crater におけるモニタリング、スケ
+ 
+ ## 概要
+ 
+-`metrics-server` は Kubernetes 用の軽量でスケーラブルなリソース使用量メトリクスの集約ツールです。Crater プラットフォームでは、以下の用途に **リアルタイムの CPU とメモリ使用量データ** を提供します:
++`metrics-server` は Kubernetes 用の軽量でスケーラブルなリソース使用量メトリクスの集約ツールです。Crater プラットフォームでは、以下の用途に **リアルタイムの CPU とメモリ使用量データ** を提供します：
+ 
+ - Pod および Node のリソースモニタリング
+ - ジョブスケジューリングの決定
+-- フロントエンドの可視化（例: ダッシュボード、使用状況統計）
++- フロントエンドの可視化（例：ダッシュボード、使用状況統計）
+ 
+ Metrics Server は、`kubectl top`、Horizontal Pod Autoscalers (HPA)、および Crater のジョブ管理 UI のような Kubernetes コンポーネントにとって **必須** です。
+ 
+@@ -19,7 +19,7 @@ Metrics Server は、`kubectl top`、Horizontal Pod Autoscalers (HPA)、およ
+ 
+ Kubernetes クラスターが完全に動作し、kubelet を介してノードコンポーネントと通信できる状態になってから、メトリクスサーバーをデプロイする必要があります。
+ 
+-外部依存関係は必要ありませんが、以下の点を確認してください:
++外部依存関係は必要ありませんが、以下の点を確認してください：
+ 
+ - kubelet の `--read-only-port` または `--authentication-token-webhook` の設定が有効になっていること。
+ - ご使用の Kubernetes バージョンが選択した metrics-server バージョンと互換性があること。
+@@ -38,5 +38,5 @@ Kubernetes クラスターが完全に動作し、kubelet を介してノード
+ 
+ Crater の値を使用して公式の Helm チャートを推奨します。
+ 
+-📦 Helm 値: [`deployments/metrics-server/values.yaml`](../deployments/metrics-server/values.yaml)  
+-📖 詳細ガイド: [`deployments/metrics-server/README.md`](../deployments/metrics-server/README.md)
+\ No newline at end of file
++📦 Helm 値：[`deployments/metrics-server/values.yaml`](../deployments/metrics-server/values.yaml)  
++📖 詳細ガイド：[`deployments/metrics-server/README.md`](../deployments/metrics-server/README.md)
+\ No newline at end of file

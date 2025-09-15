@@ -1,0 +1,40 @@
+diff --git crater-website/content/docs/admin/deployment/ingress.jp.mdx crater-website/content/docs/admin/deployment/ingress.jp.mdx
+index 3747472..aee5667 100644
+--- crater-website/content/docs/admin/deployment/ingress.jp.mdx
++++ crater-website/content/docs/admin/deployment/ingress.jp.mdx
+@@ -5,7 +5,7 @@ description: Crater は、Ingress-NGINX コントローラーを使用してサ
+ 
+ ## 配置
+ 
+-### オプション1: LoadBalancer なし (例: バーコードメタルまたは開発クラスター)
++### オプション 1: LoadBalancer なし (例：バーコードメタルまたは開発クラスター)
+ 
+ LoadBalancer サービスタイプが利用できないクラスターでは、`hostNetwork` モードを有効にするのが推奨されます。
+ 
+@@ -42,14 +42,14 @@ helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+   --set controller.allowSnippetAnnotations=true
+ ```
+ 
+-📌 この設定は、MetalLB のプールから内部IPを使用し、信頼できるネットワーク内でのサービス発見 (例: 大学のインTRANET) をサポートします。
++📌 この設定は、MetalLB のプールから内部 IP を使用し、信頼できるネットワーク内でのサービス発見 (例：大学のイン TRANET) をサポートします。
+ 
+-外部IPの割り当てを確認するには:
++外部 IP の割り当てを確認するには：
+ ```bash
+ kubectl get svc -n ingress-nginx
+ ```
+ 
+-例:
++例：
+ 
+ ```bash
+ NAME                       TYPE           EXTERNAL-IP       PORT(S)
+@@ -60,7 +60,7 @@ ingress-nginx-controller   LoadBalancer   192.168.100.243   80:31234/TCP,443:312
+ 現在、Ingress-NGINX のバージョンを `4.11.3` に固定しています。なぜなら、Crater の Ingress アノテーションはバージョン `4.12.0` 以降との互換性がまだ確立されていないためです。新しいバージョンを使用しようとすると、ルーティングリライトエラーが発生します。
+ 
+ # 解除
+-Ingress コントローラーを削除するには:
++Ingress コントローラーを削除するには：
+ 
+ ```bash
+ helm uninstall ingress-nginx -n ingress-nginx
