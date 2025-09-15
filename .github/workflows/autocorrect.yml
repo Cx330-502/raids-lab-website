@@ -20,6 +20,9 @@ on:
       - '.github/**'
       - 'crater-website/src/**'
       - 'crater-website/content/**'
+    push:
+      branches:
+        - 'feature/auto-translate-**'
 
 jobs:
   autocorrect:

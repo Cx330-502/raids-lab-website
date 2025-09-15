@@ -22,6 +22,9 @@ on:
       - 'crater-website/content/**'
       - 'crater-website/package.json'
       - 'crater-website/pnpm-lock.yaml'
+    push:
+      branches:
+        - 'feature/auto-translate-**'
 
 jobs:
   build:
