@@ -1,0 +1,13 @@
+diff --git crater-website/content/docs/index.jp.mdx crater-website/content/docs/index.jp.mdx
+index 916b4ac..a60a0d4 100644
+--- crater-website/content/docs/index.jp.mdx
++++ crater-website/content/docs/index.jp.mdx
+@@ -3,7 +3,7 @@ title: 概要
+ description: 検索機能は近日中にリリース予定です。お楽しみに！
+ ---
+ 
+-Crater は、Kubernetes 基盤のオープンソースでスマートコンピューティングプラットフォームです。本ドキュメントは主に以下の2つのパートに分かれています：
++Crater は、Kubernetes 基盤のオープンソースでスマートコンピューティングプラットフォームです。本ドキュメントは主に以下の 2 つのパートに分かれています：
+ 
+ <Cards>
+   <Card href="user" title="ユーザー・ガイド">

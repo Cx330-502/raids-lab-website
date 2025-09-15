@@ -1,0 +1,12 @@
+diff --git crater-website/content/docs/user/file/sharefile.ko.md crater-website/content/docs/user/file/sharefile.ko.md
+index e42536e..2d040f7 100644
+--- crater-website/content/docs/user/file/sharefile.ko.md
++++ crater-website/content/docs/user/file/sharefile.ko.md
+@@ -1,6 +1,6 @@
+ ---
+ title: 파일 공유
+-description: ShareFile에 대한 문서
++description: ShareFile 에 대한 문서
+ icon: HomeIcon
+ ---
+ 
