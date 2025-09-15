@@ -1,0 +1,14 @@
+diff --git .github/workflows/autocorrect.yml .github/workflows/autocorrect.yml
+index 1249186..473b37d 100644
+--- .github/workflows/autocorrect.yml
++++ .github/workflows/autocorrect.yml
+@@ -20,6 +20,9 @@ on:
+       - '.github/**'
+       - 'crater-website/src/**'
+       - 'crater-website/content/**'
++    push:
++      branches:
++        - 'feature/auto-translate-**'
+ 
+ jobs:
+   autocorrect:

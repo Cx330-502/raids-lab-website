@@ -1,0 +1,14 @@
+diff --git .github/workflows/build-check.yml .github/workflows/build-check.yml
+index dc789e6..e8aa3ec 100644
+--- .github/workflows/build-check.yml
++++ .github/workflows/build-check.yml
+@@ -22,6 +22,9 @@ on:
+       - 'crater-website/content/**'
+       - 'crater-website/package.json'
+       - 'crater-website/pnpm-lock.yaml'
++    push:
++      branches:
++        - 'feature/auto-translate-**'
+ 
+ jobs:
+   build:

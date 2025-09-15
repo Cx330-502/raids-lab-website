@@ -1,0 +1,109 @@
+diff --git .github/workflows/autotranslate.yml .github/workflows/autotranslate.yml
+index d5b6db3..e3fa7e9 100644
+--- .github/workflows/autotranslate.yml
++++ .github/workflows/autotranslate.yml
+@@ -1,11 +1,11 @@
+ # ==============================================================================
+-#  Workflow: Smart Automatic i18n Translation (v5 - Enhanced)
++#  Workflow: Smart Automatic i18n Translation (v5 - Final)
+ #
+ #  Features:
+-#  - Uses a dedicated GitHub App for secure, isolated authentication.
+-#  - Prevents recursive runs by checking commit message AND author.
+-#  - Ignores commits made by the generic 'github-actions[bot]'.
+-#  - Ignores file changes that only consist of whitespace modifications.
++#  - Uses a dedicated GitHub App for secure authentication.
++#  - Prevents self-triggering by checking the branch name.
++#  - Other CI checks should be configured to trigger on `push` to `feature/auto-translate-**`
++#    to ensure they run on this workflow's PRs.
+ # ==============================================================================
+ 
+ name: Smart Automatic i18n Translation
+@@ -14,19 +14,16 @@ on:
+   push:
+     branches:
+       - main
+-    paths:
+-      - 'crater-website/content/docs/**'
+-      - 'crater-website/messages/**'
+-      - 'crater-website/src/i18n/config.ts'
+-      - '.github/workflows/auto-translate.yml'
+   pull_request:
+     types:
+       - labeled
+ 
+ jobs:
+   auto-translate:
+-    # 通过检查最后一次的 commit message 来防止工作流被自己的提交所触发，这是最简单可靠的方式。
+-    if: "!startsWith(github.event.head_commit.message, 'chore(i18n):')"
++    # --- 核心修改 ---
++    # 增加一个条件：确保工作流不会在它自己创建的分支上运行。
++    # `github.head_ref` 变量在 push 和 pull_request 事件中都有效，代表分支名。
++    if: "!startsWith(github.head_ref, 'feature/auto-translate-')"
+ 
+     runs-on: self-hosted
+     steps:
+@@ -36,7 +33,7 @@ jobs:
+         with:
+           app_id: ${{ secrets.APP_ID }}
+           private_key: ${{ secrets.PRIVATE_KEY }}
+-          
++
+       - name: 📥 Checkout repository
+         uses: actions/checkout@v4
+         with:
+@@ -51,25 +48,22 @@ jobs:
+       - name: 📦 Install dependencies
+         run: pip install requests
+ 
+-      - name: ⚙️ Determine Files & Generate Diffs (Ignoring Whitespace)
++      - name: ⚙️ Determine Files & Generate Diffs
+         id: files-to-process
+         run: |
+           if [[ "${{ github.event_name }}" == "push" ]]; then
+             BASE_REF="${{ github.event.before }}"
+             HEAD_REF="${{ github.event.after }}"
+-          else
++          else # pull_request
+             BASE_REF="origin/${{ github.base_ref }}"
+             HEAD_REF="origin/${{ github.head_ref }}"
+             git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} --no-tags
+           fi
+           
+-          # --- 核心修改: 添加 -w (--ignore-all-space) 选项 ---
+-          GIT_DIFF_CMD="git diff -w --name-only --diff-filter=AMR $BASE_REF...$HEAD_REF"
+-          
+-          FILES_TO_PROCESS=$($GIT_DIFF_CMD)
++          FILES_TO_PROCESS=$(git diff --name-only --diff-filter=AMR $BASE_REF...$HEAD_REF)
+ 
+           if [[ -z "$FILES_TO_PROCESS" ]]; then
+-            echo "No meaningful (non-whitespace) file changes were detected. Workflow will stop."
++            echo "No new or modified files unique to this event were detected. Workflow will stop."
+             echo "has_files=false" >> $GITHUB_OUTPUT
+             exit 0
+           fi
+@@ -80,12 +74,11 @@ jobs:
+           
+           mkdir -p .diff_cache
+ 
+-          # 同样在生成 diff 内容时忽略空格，以提供更干净的 diff 给 LLM
+-          MODIFIED_FILES=$(git diff -w --name-only --diff-filter=MR $BASE_REF...$HEAD_REF)
++          MODIFIED_FILES=$(git diff --name-only --diff-filter=MR $BASE_REF...$HEAD_REF)
+           for file in $MODIFIED_FILES; do
+             diff_filename=$(echo "$file" | tr '/' '_')
+-            git diff -w --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
+-            echo "  - Created whitespace-ignored diff for $file"
++            git diff --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
++            echo "  - Created diff for $file"
+           done
+ 
+           FILES_TO_PROCESS_ARG=$(echo "$FILES_TO_PROCESS" | tr '\n' ',' | sed 's/,$//')
+@@ -108,7 +101,7 @@ jobs:
+             
+             **触发事件:** `${{ github.event_name }}`
+             
+-            *此 PR 只包含本次事件中独有的、有意义的变更（已忽略纯空格修改）。*
++            *此 PR 只包含本次事件中独有的变更，已智能排除合并主干所引入的 commits。*
+           branch: "feature/auto-translate-${{ github.run_id }}"
+           delete-branch: true
+           labels: "i18n, automated"
