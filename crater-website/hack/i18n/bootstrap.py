@@ -134,6 +134,7 @@ def main(args):
             try:
                 diff_file_name = raw_path_str.replace(os.sep, '_') + '.diff'
                 diff_file_path = DIFF_CACHE_DIR / diff_file_name
+                print(f"diff_file_path: {diff_file_path}")
                 if diff_file_path.is_file():
                     diff_content = diff_file_path.read_text('utf-8')
                     diff_content_map[str(absolute_path)] = diff_content
