@@ -107,7 +107,7 @@ jobs:
           ADDED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=A --no-renames $BASE_REF...$HEAD_REF --)
           MODIFIED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=M --no-renames $BASE_REF...$HEAD_REF --)
           
-          FINAL_FILES_TO_PROCESS="$ADDED_FILES"
+          FINAL_FILES_TO_PROCESS=""
           echo "Found added files (will always be translated):"
           echo "${ADDED_FILES:-"None"}"
 
@@ -167,6 +167,9 @@ jobs:
       # 步骤 5: 运行引导脚本
       - name: 🚀 Run Translation Bootstrap Script
         if: steps.files-to-process.outputs.has_files == 'true'
+        env:
+          # 将仓库根目录的绝对路径传递给 Python
+          REPO_ROOT: ${{ github.workspace }}
         run: |
           python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
@@ -175,8 +178,7 @@ jobs:
         if: steps.files-to-process.outputs.has_files == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ steps.generate-token.outputs.token }}
-          # ... (其他参数不变) ...
+          token: ${{ steps.generate-token.outputs.token }}.
           commit-message: "chore(i18n): 自动同步多语言翻译"
           title: "🌐 [Auto-Translate] 同步多语言文件"
           body: |

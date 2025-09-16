@@ -19,34 +19,41 @@ except ImportError as e:
     print(f"错误：无法导入 'translation_client'。请确保它与 bootstrap.py 位于同一目录或在 Python 路径中。 ({e})")
     sys.exit(1)
 
-def find_project_root(start_path: Path) -> Path:
-    """
-    从起始路径向上遍历，寻找项目根目录。
-    项目的根目录被定义为同时包含 'content' 和 'hack' 子目录的目录。
-    """
-    current_path = start_path.resolve()
-    while True:
-        if (current_path / 'content').is_dir() and (current_path / 'hack').is_dir() and (current_path / 'messages').is_dir():
-            return current_path
-        parent_path = current_path.parent
-        if parent_path == current_path:
-            raise FileNotFoundError(f"无法从 '{start_path}' 向上找到项目根目录。")
-        current_path = parent_path
-
 try:
     start_point = Path(__file__).parent
 except NameError:
     start_point = Path.cwd()
 
+try:
+    REPO_ROOT = Path(os.environ['REPO_ROOT']).resolve()
+except KeyError:
+    print("❌ 错误: 环境变量 'REPO_ROOT' 未设置。请在 GitHub Actions a workflow 中设置它。")
+    # 为了本地测试，可以提供一个 fallback
+    print("ℹ️ 本地测试 Fallback: 正在尝试从当前文件位置向上查找...")
+    try:
+        start_point = Path(__file__).parent
+    except NameError:
+        start_point = Path.cwd()
+    
+    # 向上找到包含 .git 目录的路径作为仓库根目录
+    current_path = start_point.resolve()
+    while not (current_path / '.git').is_dir():
+        parent_path = current_path.parent
+        if parent_path == current_path:
+            raise FileNotFoundError("无法找到仓库根目录 (.git 文件夹)。")
+        current_path = parent_path
+    REPO_ROOT = current_path
+    print(f"✅ 本地测试: 找到仓库根目录: {REPO_ROOT}")
+
 # 动态地找到项目根目录
-PROJECT_ROOT = find_project_root(start_point)
+PROJECT_ROOT = REPO_ROOT / 'crater-website'
 SCAN_DIRECTORIES = [
     PROJECT_ROOT / 'content' / 'docs',
     PROJECT_ROOT / 'messages'
 ]
 I18N_CONFIG_PATH = PROJECT_ROOT / 'src' / 'i18n' / 'config.ts'
 # 定义由 GitHub Actions Workflow 创建的 diff 文件缓存目录
-DIFF_CACHE_DIR = PROJECT_ROOT.parent / '.diff_cache'
+DIFF_CACHE_DIR = REPO_ROOT.parent / '.diff_cache'
 
 
 def get_i18n_config() -> Tuple[str, Dict[str, str]]:
@@ -127,7 +134,7 @@ def main(args):
         
         for raw_path_str in raw_paths:
             # 这里的路径已经是相对于项目根目录的，无需再处理前缀
-            absolute_path = PROJECT_ROOT.parent / raw_path_str
+            absolute_path = REPO_ROOT / raw_path_str
             changed_files_list.append(absolute_path)
             
             # 读取对应的 diff 文件
