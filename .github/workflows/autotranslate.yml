@@ -107,7 +107,7 @@ jobs:
           ADDED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=A --no-renames $BASE_REF...$HEAD_REF --)
           MODIFIED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=M --no-renames $BASE_REF...$HEAD_REF --)
           
-          FINAL_FILES_TO_PROCESS=""
+          FINAL_FILES_TO_PROCESS="$ADDED_FILES"
           echo "Found added files (will always be translated):"
           echo "${ADDED_FILES:-"None"}"
 
