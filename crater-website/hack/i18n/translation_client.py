@@ -303,7 +303,7 @@ def _translate_plain_text(
             diff_prompt = ""
         system_prompt = (
             f"你是一个专业的、精通多种语言的翻译引擎，擅长处理文档更新。"
-            f"你的任务是：参考一份旧的 {target_lang_full} 翻译{f}，将一份新的 {source_lang_full} 文档更新并翻译成 {target_lang_full}。"
+            f"你的任务是：参考一份旧的 {target_lang_full} 翻译{diff_system_prompt}，将一份新的 {source_lang_full} 文档更新并翻译成 {target_lang_full}。"
             f"请仔细比对新旧源文的差异，并在旧译文的基础上进行修改，以最小的变动完成更新，同时保持翻译风格和术语的一致性。"
             f"严格保持原始文档的格式，如 Markdown 语法、换行和段落结构。"
             f"只返回最终完整的、更新后的 {target_lang_full} 译文，不要添加任何额外的解释或评论。"
