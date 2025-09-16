@@ -173,12 +173,30 @@ jobs:
         run: |
           python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
-      # 步骤 6: 创建 PR (增加 if 条件)
+      # 步骤 5.1:  securely configure Git for this job only (Setup)
+      - name: 🔒 [Setup] Isolate Git configuration
+        id: setup-git
+        if: steps.files-to-process.outputs.has_files == 'true'
+        run: |
+          echo "Saving current git credential helper..."
+          # 保存当前的凭据管理器设置。如果没有设置，则保存 "none" 字符串
+          CURRENT_HELPER=$(git config --global --get credential.helper || echo "none")
+          echo "saved_helper=$CURRENT_HELPER" >> $GITHUB_OUTPUT
+          
+          echo "Temporarily disabling credential helper for this job..."
+          # 先移除，再设置为空，确保覆盖所有情况
+          git config --global --unset credential.helper || true
+          git config --global credential.helper ""
+
+      # 步骤 6: 使用 App 身份创建包含翻译结果的 Pull Request (Execute)
       - name: 🤖 Create Pull Request with Translations
+        # 增加一个 id，以便清理步骤可以引用它
+        id: create-pr
         if: steps.files-to-process.outputs.has_files == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ steps.generate-token.outputs.token }}.
+          token: ${{ steps.generate-token.outputs.token }}
+          # ... (你的所有其他参数都放在这里，保持不变)
           commit-message: "chore(i18n): 自动同步多语言翻译"
           title: "🌐 [Auto-Translate] 同步多语言文件"
           body: |
@@ -192,3 +210,21 @@ jobs:
           labels: "i18n, automated"
           author: ${{ secrets.APP_NAME }}[bot] <${{ secrets.APP_ID }}+${{ secrets.APP_NAME }}[bot]@users.noreply.github.com>
           committer: ${{ secrets.APP_NAME }}[bot] <${{ secrets.APP_ID }}+${{ secrets.APP_NAME }}[bot]@users.noreply.github.com>
+
+      # 步骤 7: 恢复原始的 Git 配置 (Cleanup)
+      - name: 🧹 [Cleanup] Restore original Git configuration
+        # 关键！if: always() 确保无论 create-pr 步骤是成功、失败还是被取消，这个清理步骤都会运行
+        if: always() && steps.setup-git.outcome == 'success'
+        run: |
+          echo "Restoring original git credential helper..."
+          SAVED_HELPER="${{ steps.setup-git.outputs.saved_helper }}"
+          # 必须先移除我们设置的空帮助程序
+          git config --global --unset credential.helper || true
+          
+          if [[ "$SAVED_HELPER" != "none" ]]; then
+            echo "Restoring helper to: $SAVED_HELPER"
+            git config --global credential.helper "$SAVED_HELPER"
+          else
+            echo "No original helper to restore."
+          fi
+          echo "Git configuration restored."
