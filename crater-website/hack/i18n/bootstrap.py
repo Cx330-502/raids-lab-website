@@ -46,7 +46,7 @@ SCAN_DIRECTORIES = [
 ]
 I18N_CONFIG_PATH = PROJECT_ROOT / 'src' / 'i18n' / 'config.ts'
 # 定义由 GitHub Actions Workflow 创建的 diff 文件缓存目录
-DIFF_CACHE_DIR = PROJECT_ROOT / '.diff_cache'
+DIFF_CACHE_DIR = PROJECT_ROOT.parent / '.diff_cache'
 
 
 def get_i18n_config() -> Tuple[str, Dict[str, str]]:

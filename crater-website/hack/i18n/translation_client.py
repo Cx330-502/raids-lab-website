@@ -290,7 +290,6 @@ def _translate_plain_text(
 ) -> str:
     # --- 新增增量逻辑: 根据是否存在旧内容，选择不同的提示词 ---
     if existing_target_content:
-        print("[i] 检测到 Diff，启用基于 Diff 的精确更新模式。")
         system_prompt = (
             f"你是一个专业的、精通多种语言的翻译引擎，擅长处理文档更新。"
             f"你的任务是：参考一份旧的 {target_lang_full} 翻译，将一份新的 {source_lang_full} 文档更新并翻译成 {target_lang_full}。"
@@ -299,6 +298,7 @@ def _translate_plain_text(
             f"只返回最终完整的、更新后的 {target_lang_full} 译文，不要添加任何额外的解释或评论。"
         )
         if modified_content:
+            print("[i] 检测到 Diff，启用基于 Diff 的精确更新模式。")
             diff_prompt = ("源文档的变更内容 (diff 格式):\n"
                 "--- [START OF MODIFICATIONS] ---\n"
                 f"{modified_content}\n"

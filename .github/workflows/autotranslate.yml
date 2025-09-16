@@ -21,14 +21,13 @@ on:
 
 jobs:
   auto-translate:
-    # 简化后的 if 条件，只防止由自己创建的 PR 合并时产生的二次触发
+    # 顶级 if 条件只做基本的防循环
     if: >-
       !startsWith(github.event.head_commit.message, 'chore(i18n):') &&
       !contains(github.event.head_commit.message, 'from feature/auto-translate-')
 
     runs-on: self-hosted
     steps:
-      # 步骤 1 & 2: 鉴权和检出代码 (不变)
       - name: 🔐 Generate a token
         id: generate-token
         uses: tibdex/github-app-token@v2
@@ -39,65 +38,96 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 必须获取完整历史记录才能追溯 commit
+          fetch-depth: 0
           token: ${{ steps.generate-token.outputs.token }}
-
-      # 步骤 3: 安装环境 (不变)
-      - name: 🐍 Set up Python environment
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: 📦 Install dependencies
-        run: pip install requests
-
+      
       - name: Install GitHub CLI and jq
         run: |
           sudo apt-get update
           sudo apt-get install -y gh jq
 
-      # 步骤 4 (全新): 智能过滤文件，追溯 PR 标签
-      - name: ⚙️ Filter Files by Commit History and PR Labels
-        id: files-to-process
-        # 使用 GitHub CLI 进行 API 调用
+      # 新增步骤: 检查源 PR 是否有 'no-translation' 标签
+      - name: 🚦 Check for Ignore Label on Source PR
+        id: check-ignore-label
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Checking commit message for PR reference..."
+          # 从 'Merge pull request #123 from ...' 中提取 PR 号
+          PR_NUMBER=$(echo "${{ github.event.head_commit.message }}" | sed -n 's/Merge pull request #\([0-9]\+\).*/\1/p')
+          
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "Commit is not a merge commit, or PR number could not be extracted. Proceeding."
+            echo "should_ignore=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Found associated PR #$PR_NUMBER. Checking its labels..."
+          PR_LABELS=$(gh pr view $PR_NUMBER --json labels --jq '.labels.[].name')
+          
+          echo "PR labels: $PR_LABELS"
+          
+          if echo "$PR_LABELS" | grep -q -w "no-translation"; then
+            echo "PR #$PR_NUMBER has the 'no-translation' label. Stopping workflow."
+            echo "should_ignore=true" >> $GITHUB_OUTPUT
+          else
+            echo "No ignore label found. Proceeding."
+            echo "should_ignore=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 步骤 4: 智能过滤文件 (已大幅增强)
+      - name: ⚙️ Filter Files by Path, Commit History, and PR Labels
+        id: files-to-process
+        if: steps.check-ignore-label.outputs.should_ignore == 'false'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
           BASE_REF="${{ github.event.before }}"
           HEAD_REF="${{ github.event.after }}"
+          
+          # 定义需要翻译的路径模式
+          TRANSLATION_PATHS_PATTERN="^crater-website/(content/docs/|messages/)"
 
-          # 1. 获取所有新增和修改的文件
-          ADDED_FILES=$(git diff --name-only --diff-filter=A --no-renames $BASE_REF...$HEAD_REF)
-          MODIFIED_FILES=$(git diff --name-only --diff-filter=M --no-renames $BASE_REF...$HEAD_REF)
+          # 1. 获取所有新增和修改的文件 (使用 -w 忽略空格)
+          ALL_CHANGED_FILES=$(git diff -w --name-only --diff-filter=AM --no-renames $BASE_REF...$HEAD_REF)
 
+          # 2. 仅保留在指定目录下的文件
+          FILTERED_FILES=$(echo "$ALL_CHANGED_FILES" | grep -E "$TRANSLATION_PATHS_PATTERN" || true)
+
+          if [[ -z "$FILTERED_FILES" ]]; then
+              echo "No files in translation paths were changed. Stopping."
+              echo "has_files=false" >> $GITHUB_OUTPUT
+              exit 0
+          fi
+
+          echo "Files within translation paths to consider:"
+          echo "${FILTERED_FILES}"
+
+          # 将过滤后的文件再次分为 Added 和 Modified
+          ADDED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=A --no-renames $BASE_REF...$HEAD_REF --)
+          MODIFIED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=M --no-renames $BASE_REF...$HEAD_REF --)
+          
+          FINAL_FILES_TO_PROCESS="$ADDED_FILES"
           echo "Found added files (will always be translated):"
           echo "${ADDED_FILES:-"None"}"
 
           echo "Found modified files (checking PR labels):"
           echo "${MODIFIED_FILES:-"None"}"
           
-          FINAL_FILES_TO_PROCESS="$ADDED_FILES"
-          
-          # 2. 遍历已修改的文件，检查其来源 PR
+          # 3. 遍历已修改的文件，检查其来源 PR
           for file in $MODIFIED_FILES; do
-            # 获取最后修改此文件的 commit hash
-            COMMIT_HASH=$(git log -1 --pretty=format:%H -- $file)
+            COMMIT_HASH=$(git log -1 -w --pretty=format:%H -- $file)
             echo "  - File '$file' was last modified by commit $COMMIT_HASH"
-            
-            # 使用 gh cli 查找与此 commit 关联的 PR
-            # --json number,labels 减少返回数据量
             PR_INFO=$(gh pr list --state merged --search "$COMMIT_HASH" --json number,labels -L 1)
             
             if [[ -z "$PR_INFO" || "$PR_INFO" == "[]" ]]; then
-              echo "    - Could not find an associated merged PR for this commit. Assuming direct push. Translating."
+              echo "    - Could not find an associated merged PR. Assuming direct push. Translating."
               FINAL_FILES_TO_PROCESS=$(echo -e "$FINAL_FILES_TO_PROCESS\n$file")
               continue
             fi
             
             PR_NUMBER=$(echo "$PR_INFO" | jq -r '.[0].number')
             echo "    - Associated with PR #$PR_NUMBER"
-            
-            # 检查 PR 是否包含 'run-translation' 标签
             HAS_LABEL=$(echo "$PR_INFO" | jq '.[0].labels | map(.name) | contains(["run-translation"])')
             
             if [[ "$HAS_LABEL" == "true" ]]; then
@@ -108,12 +138,11 @@ jobs:
             fi
           done
 
-          # 3. 清理并输出最终文件列表
-          # sed '/^$/d' 删除空行
+          # 4. 清理并输出最终文件列表
           FINAL_FILES_TO_PROCESS=$(echo "$FINAL_FILES_TO_PROCESS" | sed '/^$/d' | sort -u)
 
           if [[ -z "$FINAL_FILES_TO_PROCESS" ]]; then
-            echo "No files to process after filtering. Workflow will stop."
+            echo "No files to process after all filters. Workflow will stop."
             echo "has_files=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -122,13 +151,12 @@ jobs:
           echo "Final list of files to process:"
           echo "$FINAL_FILES_TO_PROCESS"
           
-          # Diff 生成逻辑 (与之前类似，但基于 FINAL_FILES_TO_PROCESS)
+          # Diff 生成逻辑
           mkdir -p .diff_cache
           for file in $FINAL_FILES_TO_PROCESS; do
-            # 检查文件是否确实是 "modified" 状态来决定是否创建 diff
-            if [[ $(git diff --name-only --diff-filter=M $BASE_REF...$HEAD_REF -- "$file") ]]; then
+            if [[ $(echo "$MODIFIED_FILES" | grep -q -w "$file") ]]; then
               diff_filename=$(echo "$file" | tr '/' '_')
-              git diff --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
+              git diff -w --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
               echo "  - Created diff for modified file: $file"
             fi
           done
@@ -136,7 +164,7 @@ jobs:
           FILES_TO_PROCESS_ARG=$(echo "$FINAL_FILES_TO_PROCESS" | tr '\n' ',' | sed 's/,$//')
           echo "files=${FILES_TO_PROCESS_ARG}" >> $GITHUB_OUTPUT
 
-      # 步骤 5: 运行引导脚本 (增加 if 条件)
+      # 步骤 5: 运行引导脚本
       - name: 🚀 Run Translation Bootstrap Script
         if: steps.files-to-process.outputs.has_files == 'true'
         run: |
