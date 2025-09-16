@@ -290,22 +290,25 @@ def _translate_plain_text(
 ) -> str:
     # --- 新增增量逻辑: 根据是否存在旧内容，选择不同的提示词 ---
     if existing_target_content:
-        system_prompt = (
-            f"你是一个专业的、精通多种语言的翻译引擎，擅长处理文档更新。"
-            f"你的任务是：参考一份旧的 {target_lang_full} 翻译，将一份新的 {source_lang_full} 文档更新并翻译成 {target_lang_full}。"
-            f"请仔细比对新旧源文的差异，并在旧译文的基础上进行修改，以最小的变动完成更新，同时保持翻译风格和术语的一致性。"
-            f"严格保持原始文档的格式，如 Markdown 语法、换行和段落结构。"
-            f"只返回最终完整的、更新后的 {target_lang_full} 译文，不要添加任何额外的解释或评论。"
-        )
         if modified_content:
             print("[i] 检测到 Diff，启用基于 Diff 的精确更新模式。")
+            diff_system_prompt = f"和 {source_lang_full} 语言下的源文档的变更内容 (diff 格式) "
             diff_prompt = ("源文档的变更内容 (diff 格式):\n"
                 "--- [START OF MODIFICATIONS] ---\n"
                 f"{modified_content}\n"
                 "--- [END OF MODIFICATIONS] ---\n\n"
             )
         else:
+            diff_system_prompt = ""
             diff_prompt = ""
+        system_prompt = (
+            f"你是一个专业的、精通多种语言的翻译引擎，擅长处理文档更新。"
+            f"你的任务是：参考一份旧的 {target_lang_full} 翻译{f}，将一份新的 {source_lang_full} 文档更新并翻译成 {target_lang_full}。"
+            f"请仔细比对新旧源文的差异，并在旧译文的基础上进行修改，以最小的变动完成更新，同时保持翻译风格和术语的一致性。"
+            f"严格保持原始文档的格式，如 Markdown 语法、换行和段落结构。"
+            f"只返回最终完整的、更新后的 {target_lang_full} 译文，不要添加任何额外的解释或评论。"
+        )
+
         user_prompt = (
             f"这是最新的 {source_lang_full} 文档内容：\n"
             f"--- [START OF NEW SOURCE] ---\n"
