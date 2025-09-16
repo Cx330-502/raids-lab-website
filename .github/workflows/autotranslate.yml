@@ -89,7 +89,7 @@ jobs:
           TRANSLATION_PATHS_PATTERN="^crater-website/(content/docs/|messages/)"
 
           # 1. 获取所有新增和修改的文件 (使用 -w 忽略空格)
-          ALL_CHANGED_FILES=$(git diff -w --name-only --diff-filter=AM --no-renames $BASE_REF $HEAD_REF)
+          ALL_CHANGED_FILES=$(git diff -w --name-only --diff-filter=AM --no-renames $BASE_REF...$HEAD_REF)
 
           # 2. 仅保留在指定目录下的文件
           FILTERED_FILES=$(echo "$ALL_CHANGED_FILES" | grep -E "$TRANSLATION_PATHS_PATTERN" || true)
@@ -104,8 +104,8 @@ jobs:
           echo "${FILTERED_FILES}"
 
           # 将过滤后的文件再次分为 Added 和 Modified
-          ADDED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=A --no-renames $BASE_REF $HEAD_REF --)
-          MODIFIED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=M --no-renames $BASE_REF $HEAD_REF --)
+          ADDED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=A --no-renames $BASE_REF...$HEAD_REF --)
+          MODIFIED_FILES=$(echo "$FILTERED_FILES" | xargs -n1 git diff -w --name-only --diff-filter=M --no-renames $BASE_REF...$HEAD_REF --)
           
           FINAL_FILES_TO_PROCESS="$ADDED_FILES"
           echo "Found added files (will always be translated):"
@@ -154,7 +154,7 @@ jobs:
           # Diff 生成逻辑
           mkdir -p .diff_cache
           for file in $FINAL_FILES_TO_PROCESS; do
-            if [[ $(echo "$MODIFIED_FILES" | grep -q -w "$file") ]]; then
+            if echo "$MODIFIED_FILES" | grep -q -w "$file"; then
               diff_filename=$(echo "$file" | tr '/' '_')
               git diff -w --no-prefix $BASE_REF...$HEAD_REF -- "$file" > ".diff_cache/${diff_filename}.diff"
               echo "  - Created diff for modified file: $file"
@@ -173,7 +173,7 @@ jobs:
         run: |
           python crater-website/hack/i18n/bootstrap.py --changed-files "${{ steps.files-to-process.outputs.files }}"
 
-      # 步骤 5.1:  securely configure Git for this job only (Setup)
+      # 步骤 6: 创建 PR (增加 if 条件)
       - name: 🔒 [Setup] Isolate Git configuration
         id: setup-git
         if: steps.files-to-process.outputs.has_files == 'true'

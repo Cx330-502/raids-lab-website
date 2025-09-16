@@ -55,6 +55,15 @@ I18N_CONFIG_PATH = PROJECT_ROOT / 'src' / 'i18n' / 'config.ts'
 # 定义由 GitHub Actions Workflow 创建的 diff 文件缓存目录
 DIFF_CACHE_DIR = REPO_ROOT / '.diff_cache'
 
+def is_meaningful_diff(diff_text: str) -> bool:
+    """判断 diff 是否包含实质性内容变更（非空格、非格式）"""
+    for line in diff_text.splitlines():
+        # 只检查以 + 或 - 开头的非空行，忽略空格变更
+        if line.startswith('+') or line.startswith('-'):
+            stripped = line[1:].strip()
+            if stripped and not re.match(r'^\s*$', stripped):
+                return True
+    return False
 
 def get_i18n_config() -> Tuple[str, Dict[str, str]]:
     print(f"🤖 正在从 '{I18N_CONFIG_PATH}' 读取原生i18n配置...")
@@ -144,8 +153,13 @@ def main(args):
                 print(f"diff_file_path: {diff_file_path}")
                 if diff_file_path.is_file():
                     diff_content = diff_file_path.read_text('utf-8')
-                    diff_content_map[str(absolute_path)] = diff_content
-                    print(f"    - 已加载文件 '{raw_path_str}' 的 diff 内容。")
+                    if is_meaningful_diff(diff_content):
+                        diff_content_map[str(absolute_path)] = diff_content
+                        print(f"    - 已加载文件 '{raw_path_str}' 的 diff 内容。")
+                    else:
+                        print(f"    - 文件 '{raw_path_str}' 的 diff 内容无实质性变更，已忽略。")
+                        changed_files_list.remove(absolute_path)
+
                 else:
                     print(f"    - 文件 '{raw_path_str}' 是新增文件，无 diff。")
             except Exception as e:
