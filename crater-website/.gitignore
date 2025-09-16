@@ -29,3 +29,5 @@ next-env.d.ts
 .idea
 
 *.pyc
+
+.diff_cache

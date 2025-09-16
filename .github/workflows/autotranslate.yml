@@ -28,8 +28,15 @@ jobs:
     # 1. 如果是 push 事件，commit message 不能是 'chore(i18n):' 开头 (防止自己 push main 后无限循环)
     # 2. 如果是 pull_request 事件，发起者不能是机器人 (防止自己给自己打标签后无限循环)
     if: >-
-      (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(i18n):')) ||
-      (github.event_name == 'pull_request' && github.event.sender.type != 'Bot')
+      (
+        github.event_name == 'push' &&
+        !startsWith(github.event.head_commit.message, 'chore(i18n):') &&
+        !contains(github.event.head_commit.message, 'from feature/auto-translate-')
+      ) ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.sender.type != 'Bot'
+      )
 
     runs-on: self-hosted
     steps:
