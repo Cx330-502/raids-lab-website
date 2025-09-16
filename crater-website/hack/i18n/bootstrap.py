@@ -127,7 +127,7 @@ def main(args):
         
         for raw_path_str in raw_paths:
             # 这里的路径已经是相对于项目根目录的，无需再处理前缀
-            absolute_path = PROJECT_ROOT / raw_path_str
+            absolute_path = PROJECT_ROOT.parent / raw_path_str
             changed_files_list.append(absolute_path)
             
             # 读取对应的 diff 文件
